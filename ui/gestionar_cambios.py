@@ -98,27 +98,6 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         )
         self.text_content.pack(side="left", fill="both", expand=True)
         
-        arrow_frame = ctk.CTkFrame(text_area_frame, width=40)
-        arrow_frame.pack(side="right", padx=(5,10), fill="y")
-        
-        ctk.CTkButton(
-            arrow_frame,
-            text="▲",
-            command=self.scroll_to_top,
-            width=30,
-            height=25,
-            font=ctk.CTkFont(size=14)
-        ).pack(pady=(0,2))
-        
-        ctk.CTkButton(
-            arrow_frame,
-            text="▼",
-            command=self.scroll_to_bottom,
-            width=30,
-            height=25,
-            font=ctk.CTkFont(size=14)
-        ).pack(pady=(2,0))
-        
         self.load_text_content()
         
         self.status_frame = ctk.CTkFrame(self)
@@ -138,6 +117,26 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             fg_color="green",
             width=120
         ).pack(side="right", padx=10, pady=5)
+
+        # Botón para bajar rápido (al lado de Guardar)
+        ctk.CTkButton(
+            self.status_frame,
+            text="▼",
+            command=self.scroll_to_bottom,
+            width=40,
+            height=30,
+            font=ctk.CTkFont(size=14)
+        ).pack(side="right", padx=2, pady=5)
+
+        # Botón para subir rápido (al lado de Bajar)
+        ctk.CTkButton(
+            self.status_frame,
+            text="▲",
+            command=self.scroll_to_top,
+            width=40,
+            height=30,
+            font=ctk.CTkFont(size=14)
+        ).pack(side="right", padx=2, pady=5)
     
     def load_text_content(self):
         try:
