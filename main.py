@@ -138,14 +138,6 @@ class AICodeEditor(ctk.CTk):
         )
         self.lbl_title.grid(row=0, column=0, pady=10, padx=10, sticky="w")
         
-        self.lbl_instructions = ctk.CTkLabel(
-            self.main_content,
-            text="💡 Doble clic para seleccionar/deseleccionar archivos y carpetas",
-            font=ctk.CTkFont(size=11),
-            text_color="gray"
-        )
-        self.lbl_instructions.grid(row=0, column=0, pady=(0,5), padx=10, sticky="w")
-        
         self.file_frame = ctk.CTkFrame(self.main_content)
         self.file_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
         self.file_frame.grid_rowconfigure(0, weight=1)
@@ -169,32 +161,44 @@ class AICodeEditor(ctk.CTk):
     
     def create_file_browser(self):
         style = ttk.Style()
-        style.theme_use("default")
+        # Usamos 'clam' para tener control total sobre los colores y bordes
+        style.theme_use("clam")
+
         style.configure(
             "Treeview",
             background="#2B2B2B",
             foreground="white",
-            fieldbackground="#2B2B2B",
+            fieldbackground="#2B2B2B", # Esto evita que el fondo se ponga blanco
             rowheight=28,
-            font=("Consolas", 11)
+            font=("Consolas", 11),
+            borderwidth=0,
         )
         style.configure(
             "Treeview.Heading",
             background="#1F1F1F",
             foreground="white",
-            font=("Consolas", 11, "bold")
+            font=("Consolas", 11, "bold"),
+            borderwidth=0
         )
+        # Eliminar el borde de enfoque (focus highlight) en el tema clam
+        style.layout("Treeview", [('Treeview.treearea', {'sticky': 'nswe'})])
+        
         style.map("Treeview", background=[("selected", "#3B8ED0")])
         
-        self.tree_frame = ctk.CTkFrame(self.file_frame)
+        self.tree_frame = ctk.CTkFrame(self.file_frame, fg_color="#2B2B2B", border_width=0)
         self.tree_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
         self.tree_frame.grid_columnconfigure(0, weight=1)
         self.tree_frame.grid_rowconfigure(0, weight=1)
         
-        self.tree = ttk.Treeview(self.tree_frame, show="tree", selectmode="browse")
+        self.tree = ttk.Treeview(
+            self.tree_frame, 
+            show="tree", 
+            selectmode="browse",
+            style="Treeview"
+        )
         self.tree.grid(row=0, column=0, sticky="nsew")
         
-        scrollbar = ttk.Scrollbar(self.tree_frame, orient="vertical", command=self.tree.yview)
+        scrollbar = ctk.CTkScrollbar(self.tree_frame, orientation="vertical", command=self.tree.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.tree.configure(yscrollcommand=scrollbar.set)
         

@@ -53,20 +53,31 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             fg_color="red"
         ).pack(side="left", padx=5)
         
-        paned = ttk.PanedWindow(self, orient="vertical")
+        # Configurar estilo de la barra divisoria (sash)
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(
+            "TPanedwindow", 
+            background="#2B2B2B",  # Color de fondo de los frames
+            sashthickness=2,       # Grosor de la línea
+            sashpad=1,             # Área de agarre mínima
+            borderwidth=0
+        )
+        
+        paned = ttk.PanedWindow(self, orient="vertical", style="TPanedwindow")
         paned.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
         
-        top_frame = ctk.CTkFrame(paned)
+        top_frame = ctk.CTkFrame(paned, corner_radius=0)
         paned.add(top_frame, weight=1)
         
         self.changes_container = ctk.CTkScrollableFrame(top_frame)
-        self.changes_container.pack(fill="both", expand=True, padx=5, pady=5)
+        self.changes_container.pack(fill="both", expand=True, padx=5, pady=(5, 0)) # Quitamos pady inferior
         
-        bottom_frame = ctk.CTkFrame(paned)
+        bottom_frame = ctk.CTkFrame(paned, corner_radius=0)
         paned.add(bottom_frame, weight=1)
         
         text_container = ctk.CTkFrame(bottom_frame)
-        text_container.pack(fill="both", expand=True, padx=5, pady=5)
+        text_container.pack(fill="both", expand=True, padx=5, pady=(0, 5)) # Quitamos pady superior
         
         ctk.CTkLabel(
             text_container,
@@ -108,17 +119,6 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(size=14)
         ).pack(pady=(2,0))
         
-        btn_frame = ctk.CTkFrame(bottom_frame)
-        btn_frame.pack(fill="x", padx=5, pady=5)
-        
-        ctk.CTkButton(
-            btn_frame,
-            text="💾 Guardar",
-            command=self.save_content,
-            fg_color="green",
-            width=120
-        ).pack(side="right", padx=5)
-        
         self.load_text_content()
         
         self.status_frame = ctk.CTkFrame(self)
@@ -129,7 +129,15 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             text="Carga cambios desde el panel de arriba o pega nuevo contenido abajo",
             font=ctk.CTkFont(size=12)
         )
-        self.status_label.pack(pady=5)
+        self.status_label.pack(side="left", padx=10, pady=5)
+
+        ctk.CTkButton(
+            self.status_frame,
+            text="💾 Guardar",
+            command=self.save_content,
+            fg_color="green",
+            width=120
+        ).pack(side="right", padx=10, pady=5)
     
     def load_text_content(self):
         try:
