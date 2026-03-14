@@ -79,15 +79,6 @@ class AICodeEditor(ctk.CTk):
         )
         self.btn_select_project.pack(pady=10, padx=20, fill="x")
         
-        self.btn_select_changes = ctk.CTkButton(
-            self.sidebar,
-            text="📂 Cargar Cambios",
-            command=self.select_changes_folder,
-            height=40,
-            state="disabled"
-        )
-        self.btn_select_changes.pack(pady=10, padx=20, fill="x")
-        
         self.lbl_project = ctk.CTkLabel(
             self.sidebar,
             text="Ningún proyecto seleccionado",
@@ -110,8 +101,8 @@ class AICodeEditor(ctk.CTk):
         
         self.btn_apply = ctk.CTkButton(
             self.sidebar,
-            text="✅ Aplicar Cambios",
-            command=self.apply_changes,
+            text="📂 Gestionar Cambios",
+            command=self.manage_changes,
             height=40,
             state="disabled"
         )
@@ -217,26 +208,35 @@ class AICodeEditor(ctk.CTk):
             self.lbl_project.configure(text=f"Proyecto:\n{os.path.basename(folder)}")
             self.lbl_title.configure(text=f"Archivos del proyecto: {os.path.basename(folder)}")
             self.load_project_files(folder)
+            
+            changes_folder = os.path.join(folder, "_changes")
+            if not os.path.exists(changes_folder):
+                os.makedirs(changes_folder, exist_ok=True)
+            
+            changes_file = os.path.join(changes_folder, "_changes.txt")
+            if not os.path.exists(changes_file):
+                with open(changes_file, 'w', encoding='utf-8') as f:
+                    f.write("")
+            
             self.btn_generate.configure(state="normal")
-            self.btn_select_changes.configure(state="normal")
-    
-    def select_changes_folder(self):
-        default_changes_folder = os.path.join(self.project_path, "_changes")
-        
-        if not os.path.exists(default_changes_folder):
-            os.makedirs(default_changes_folder, exist_ok=True)
-        
-        folder = filedialog.askdirectory(
-            title="Seleccionar Carpeta de Cambios",
-            initialdir=default_changes_folder
-        )
-        
-        if folder:
-            self.changes_path = folder
-            self.lbl_project.configure(
-                text=f"Proyecto:\n{os.path.basename(self.project_path)}\n\nCambios:\n{os.path.basename(folder)}"
-            )
             self.btn_apply.configure(state="normal")
+    
+    def manage_changes(self):
+        if not self.project_path:
+            self.show_error("Selecciona un proyecto primero")
+            return
+        
+        changes_file = os.path.join(self.project_path, "_changes", "_changes.txt")
+        
+        if not os.path.exists(os.path.dirname(changes_file)):
+            os.makedirs(os.path.dirname(changes_file), exist_ok=True)
+        
+        if not os.path.exists(changes_file):
+            with open(changes_file, 'w', encoding='utf-8') as f:
+                f.write("")
+        
+        from ui.gestionar_cambios import GestionarCambiosWindow
+        GestionarCambiosWindow(self, self.project_path, changes_file)
     
     def load_project_files(self, folder):
         for item in self.tree.get_children():

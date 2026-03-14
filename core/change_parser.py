@@ -194,14 +194,29 @@ def apply_change(change: Change) -> bool:
             return True
         
         if not os.path.exists(change.file_path):
+            print(f"DEBUG: Archivo no existe: {change.file_path}")
             return False
         
         with open(change.file_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
-        if change.old_code in content:
+        old_code_stripped = change.old_code.strip()
+        content_stripped = content.strip()
+        
+        print(f"DEBUG old_code ({len(old_code_stripped)} chars): {repr(old_code_stripped[:100])}")
+        print(f"DEBUG content ({len(content_stripped)} chars): {repr(content_stripped[:100])}")
+        print(f"DEBUG contains: {old_code_stripped in content_stripped}")
+        
+        if not old_code_stripped:
+            print("DEBUG: old_code está vacío")
+            return False
+        
+        if old_code_stripped in content_stripped:
             new_content = content.replace(change.old_code, change.new_code, 1)
+            if new_content == content:
+                new_content = content.replace(change.old_code.strip(), change.new_code, 1)
         else:
+            print("DEBUG: No se encontró el código")
             return False
         
         with open(change.file_path, 'w', encoding='utf-8') as f:
@@ -211,6 +226,7 @@ def apply_change(change: Change) -> bool:
         return True
         
     except Exception as e:
+        print(f"DEBUG exception: {e}")
         return False
 
 
