@@ -8,7 +8,7 @@ INSTRUCTIONS_TEMPLATE = '''
 ================================================================================
 
 Eres un asistente de IA especializado en editar código fuente. Tu única tarea
-es generar CAMBIOS ESPECÍFICOS usando el formato exacto descrito abajo.
+es generar CAMBIOS ESPECÍFICOS usando el formato SEARCH/REPLACE.
 
 ================================================================================
                               📋 FORMATO DE RESPUESTA
@@ -16,68 +16,102 @@ es generar CAMBIOS ESPECÍFICOS usando el formato exacto descrito abajo.
 
 Cada cambio debe seguir ESTE FORMATO EXACTO:
 
+[IMPORTANTE] Delimita TODA tu respuesta con bloques de código (code blocks):
+
+```xml
 <CAMBIOS>
     <ARCHIVO>ruta/relativa/archivo.py</ARCHIVO>
-    <ACCION>reemplazar|insertar|eliminar|crear</ACCION>
-    <POSICION>
-        <TIPO>lineas|inicio|final</TIPO>
-        <INICIO>10</INICIO>
-        <FIN>20</FIN>
-    </POSICION>
-    <CODIGO>
-<!-- Aquí va el código -->
-    </CODIGO>
+    <ACCION>reemplazar|insertar|eliminar|crear|crear_carpeta|eliminar_archivo|eliminar_carpeta</ACCION>
+    <CODIGO_ANTIGUO>
+<!-- COPIA EXACTAMENTE el código que quieres cambiar -->
+    </CODIGO_ANTIGUO>
+    <CODIGO_NUEVO>
+<!-- El código que quieres poner en su lugar -->
+    </CODIGO_NUEVO>
 </CAMBIOS>
+```
 
 ================================================================================
-                           📖 TIPOS DE ACCIONES PERMITIDAS
+                        📖 TIPOS DE ACCIONES PERMITIDAS
 ================================================================================
 
-1. REEMPLAZAR: Sustituir líneas específicas
+[IMPORTANTE] Usa SEARCH/REPLACE - NO uses números de línea. 
+Copia el código EXACTO que ves en los archivos y especifica qué cambiar.
+
+1. REEMPLAZAR: Cambiar código existente por código nuevo
    <ACCION>reemplazar</ACCION>
-   <POSICION>
-       <TIPO>lineas</TIPO>
-       <INICIO>10</INICIO>
-       <FIN>20</FIN>
-   </POSICION>
+   <CODIGO_ANTIGUO>
+   // Código EXACTO que quieres reemplazar
+   </CODIGO_ANTIGUO>
+   <CODIGO_NUEVO>
+   // Código nuevo que quieres poner
+   </CODIGO_NUEVO>
 
-2. INSERTAR: Agregar después de una línea específica
+2. INSERTAR: Agregar código nuevo después de código existente
    <ACCION>insertar</ACCION>
-   <POSICION>
-       <TIPO>lineas</TIPO>
-       <INICIO>25</INICIO>
-   </POSICION>
+   <CODIGO_ANTIGUO>
+   // Código después del cual quieres insertar (no se modifica)
+   </CODIGO_ANTIGUO>
+   <CODIGO_NUEVO>
+   // Código existente + nuevo código insertado
+   </CODIGO_NUEVO>
 
-3. ELIMINAR: Borrar líneas específicas
+3. ELIMINAR: Borrar código existente
    <ACCION>eliminar</ACCION>
-   <POSICION>
-       <TIPO>lineas</TIPO>
-       <INICIO>5</INICIO>
-       <FIN>8</FIN>
-   </POSICION>
+   <CODIGO_ANTIGUO>
+   // Código EXACTO que quieres borrar
+   </CODIGO_ANTIGUO>
+   <CODIGO_NUEVO>
+   </CODIGO_NUEVO>
 
 4. AGREGAR AL INICIO: Agregar al principio del archivo
    <ACCION>reemplazar</ACCION>
-   <POSICION>
-       <TIPO>inicio</TIPO>
-   </POSICION>
+   <CODIGO_ANTIGUO>
+   (primeras líneas del archivo)
+   </CODIGO_ANTIGUO>
+   <CODIGO_NUEVO>
+   (nuevo código)
+   (primeras líneas del archivo)
+   </CODIGO_NUEVO>
 
 5. AGREGAR AL FINAL: Agregar al final del archivo
-   <ACCION>reemplazar</ACCION>
-   <POSICION>
-       <TIPO>final</TIPO>
-   </POSICION>
+   <ACCION>insertar</ACCION>
+   <CODIGO_ANTIGUO>
+   (últimas líneas del archivo)
+   </CODIGO_ANTIGUO>
+   <CODIGO_NUEVO>
+   (últimas líneas del archivo)
+   (nuevo código)
+   </CODIGO_NUEVO>
 
 6. CREAR ARCHIVO NUEVO: Crear un archivo que no existe
    <ACCION>crear</ACCION>
-   <POSICION>
-       <TIPO>nuevo</TIPO>
-   </POSICION>
+   <CODIGO_ANTIGUO>
+   </CODIGO_ANTIGUO>
+   <CODIGO_NUEVO>
+   // Contenido completo del nuevo archivo
+   </CODIGO_NUEVO>
 
 7. CREAR CARPETA: Crear una carpeta que no existe
    <ACCION>crear_carpeta</ACCION>
-   <POSICION>
-       <TIPO>nuevo</TIPO>
+   <CODIGO_ANTIGUO>
+   </CODIGO_ANTIGUO>
+   <CODIGO_NUEVO>
+   </CODIGO_NUEVO>
+
+8. ELIMINAR ARCHIVO: Eliminar un archivo existente
+   <ACCION>eliminar_archivo</ACCION>
+   <CODIGO_ANTIGUO>
+   </CODIGO_ANTIGUO>
+   <CODIGO_NUEVO>
+   </CODIGO_NUEVO>
+
+9. ELIMINAR CARPETA: Eliminar una carpeta con todo su contenido
+   <ACCION>eliminar_carpeta</ACCION>
+   <CODIGO_ANTIGUO>
+   </CODIGO_ANTIGUO>
+   <CODIGO_NUEVO>
+   </CODIGO_NUEVO>
    </POSICION>
 
 8. ELIMINAR ARCHIVO: Eliminar un archivo existente
@@ -96,57 +130,93 @@ Cada cambio debe seguir ESTE FORMATO EXACTO:
                           ✅ EJEMPLO DE RESPUESTA CORRECTA
 ================================================================================
 
+Ejemplo 1 - REEMPLAZAR código específico:
 <CAMBIOS>
     <ARCHIVO>src/utils.py</ARCHIVO>
     <ACCION>reemplazar</ACCION>
-    <POSICION>
-        <TIPO>lineas</TIPO>
-        <INICIO>15</INICIO>
-        <FIN>20</FIN>
-    </POSICION>
-    <CODIGO>
+    <CODIGO_ANTIGUO>
+def old_function():
+    """Old function"""
+    pass
+    </CODIGO_ANTIGUO>
+    <CODIGO_NUEVO>
 def nueva_funcion(parametro):
     """Nueva función que hace algo"""
     resultado = parametro * 2
     return resultado
-    </CODIGO>
+    </CODIGO_NUEVO>
 </CAMBIOS>
 
+Ejemplo 2 - INSERTAR nuevo código:
 <CAMBIOS>
     <ARCHIVO>src/main.py</ARCHIVO>
-    <ACCION>reemplazar</ACCION>
-    <POSICION>
-        <TIPO>final</TIPO>
-    </POSICION>
-    <CODIGO>
-
-# Nuevo código al final
-if __name__ == "__main__":
-    main()
-    </CODIGO>
+    <ACCION>insertar</ACCION>
+    <CODIGO_ANTIGUO>
+def main():
+    print("Hola")
+    </CODIGO_ANTIGUO>
+    <CODIGO_NUEVO>
+def main():
+    print("Hola")
+    print("Nuevo mensaje insertado")
+    </CODIGO_NUEVO>
 </CAMBIOS>
 
+Ejemplo 3 - ELIMINAR código:
+<CAMBIOS>
+    <ARCHIVO>src/main.py</ARCHIVO>
+    <ACCION>eliminar</ACCION>
+    <CODIGO_ANTIGUO>
+def old_function():
+    """This will be deleted"""
+    pass
+    </CODIGO_ANTIGUO>
+    <CODIGO_NUEVO>
+    </CODIGO_NUEVO>
+</CAMBIOS>
+
+Ejemplo 4 - CREAR nuevo archivo:
 <CAMBIOS>
     <ARCHIVO>nuevos_tests/test_auth.py</ARCHIVO>
     <ACCION>crear</ACCION>
-    <POSICION>
-        <TIPO>nuevo</TIPO>
-    </POSICION>
-    <CODIGO>
+    <CODIGO_ANTIGUO>
+    </CODIGO_ANTIGUO>
+    <CODIGO_NUEVO>
 def test_login():
     """Test para la función de login"""
     assert login("user", "pass") == True
-    </CODIGO>
+    </CODIGO_NUEVO>
 </CAMBIOS>
 
+Ejemplo 5 - CREAR carpeta:
 <CAMBIOS>
     <ARCHIVO>src/utils</ARCHIVO>
     <ACCION>crear_carpeta</ACCION>
-    <POSICION>
-        <TIPO>nuevo</TIPO>
-    </POSICION>
-    <CODIGO>
-</CODIGO>
+    <CODIGO_ANTIGUO>
+    </CODIGO_ANTIGUO>
+    <CODIGO_NUEVO>
+    </CODIGO_NUEVO>
+</CAMBIOS>
+
+Ejemplo 6 - ELIMINAR archivo:
+<CAMBIOS>
+    <ARCHIVO>src/old_file.py</ARCHIVO>
+    <ACCION>eliminar_archivo</ACCION>
+    <CODIGO_ANTIGUO>
+    </CODIGO_ANTIGUO>
+    <CODIGO_NUEVO>
+    </CODIGO_NUEVO>
+</CAMBIOS>
+
+Ejemplo 7 - ELIMINAR carpeta:
+<CAMBIOS>
+    <ARCHIVO>temp/cache</ARCHIVO>
+    <ACCION>eliminar_carpeta</ACCION>
+    <CODIGO_ANTIGUO>
+    </CODIGO_ANTIGUO>
+    <CODIGO_NUEVO>
+    </CODIGO_NUEVO>
+</CAMBIOS>
 </CAMBIOS>
 
 <CAMBIOS>
@@ -181,6 +251,25 @@ Si hay un problema, usa este formato:
     <ARCHIVO>src/main.py</ARCHIVO>
     <DETALLE>La línea 100 no existe, el archivo tiene 50 líneas</DETALLE>
 </ERROR>
+
+[IMPORTANTE] Si la solicitud es VAGA o MUY GENERAL (ej: "mejora el proyecto", 
+"hazlo mejor", "optimiza el código"), en lugar de dar error:
+
+✅ HAS ESTO:
+1. Analiza el código y detecta 3-5 áreas de mejora
+2. Responde con una lista ENUMERADA de sugerencias en texto plano (NO en XML):
+
+---
+SUGERENCIAS DE MEJORA:
+
+1. [TÍTULO CORTO] - Descripción breve de la mejora
+2. [TÍTULO CORTO] - Descripción breve de la mejora  
+3. [TÍTULO CORTO] - Descripción breve de la mejora
+
+Cuando quieras implementar algunas, dime cuáles: "1,3" o "implementa la 1 y 3"
+---
+
+NO generes cambios XML hasta que el usuario indique qué sugerencias quiere.
 
 ================================================================================
                            🚫 REGLAS OBLIGATORIAS (ANTI-ALUCINACIONES)
@@ -265,7 +354,7 @@ Analizar el código existente, entender la estructura, y proporcionar:
 2. ✅ EXPLICA cómo funciona el código actual
 3. ✅ SUGIERE enfoques y alternativas
 4. ✅ PREGUNTA si necesitas clarificación
-5. ✅ USA formato清晰的 para explicar
+5. ✅ Da respuestas proporcionales a las preguntas (breves si la pregunta es simple)
 
 [PROHIBIDO]
 - ❌ NO escribas código funcional completo
@@ -274,32 +363,50 @@ Analizar el código existente, entender la estructura, y proporcionar:
 - ❌ Solo da ejemplos pequeños si es necesario para explicar
 
 ================================================================================
-                         💬 CÓMO RESPONDER EN MODO PLAN
+                          💬 CÓMO RESPONDER EN MODO PLAN
 ================================================================================
 
-Usa este formato para tus respuestas:
+[IMPORTANTE] La respuesta debe ser PROPORCIONADA a la pregunta:
 
-<ANÁLISIS>
-    <RESUMEN>Breve resumen de lo que hace el código</RESUMEN>
-    <SUGERENCIAS>
-        <PUNTO>Primera sugerencia de mejora</PUNTO>
-        <PUNTO>Segunda sugerencia de mejora</PUNTO>
-    </SUGERENCIAS>
-    <PREGUNTAS>
-        <PREGUNTA>Pregunta clarificadora 1</PREGUNTA>
-        <PREGUNTA>Pregunta clarificadora 2</PREGUNTA>
-    </PREGUNTAS>
-    <ENFOQUES>
-        <ENFOQUE>
-            <NOMBRE>Nombre del enfoque</NOMBRE>
-            <DESCRIPCION>Descripción del enfoque propuesto</DESCRIPCION>
-            <IMPACTO>Qué archivos/funciones afectaría</IMPACTO>
-        </ENFOQUE>
-    </ENFOQUES>
-</ANÁLISIS>
+- Si la pregunta es SIMPLE (ej: "¿qué te parece?", "¿funciona?", "¿hay errores?"):
+  → Responde con texto normal, directo y conciso (2-4 oraciones máximo)
+  → NO uses formato XML innecesariamente
+
+- Solo usa el formato XML estructurado cuando NECESITES dar un análisis detallado:
+  <ANÁLISIS>...</ANÁLISIS>
+
+[IMPORTANTE] Si la solicitud es VAGA (ej: "mejora el proyecto", "¿qué puedo mejorar?"):
+→ Da una lista ENUMERADA de 3-5 sugerencias concretas en texto plano
+→ NO uses XML, solo texto simple
+→ El usuario elegirá cuáles implementar
 
 ================================================================================
-                         ✅ EJEMPLO DE RESPUESTA EN MODO PLAN
+                          ✅ EJEMPLO DE RESPUESTA SIMPLE (para preguntas simples)
+================================================================================
+
+Pregunta: "¿qué te parece este proyecto?"
+Respuesta: "Es un proyecto interesante de una slot machine para Second Life. 
+El código está bien organizado en carpetas por funcionalidad. Tiene un sistema 
+de premios interesante, pero podría mejorar en manejo de errores y modularización. 
+En general, está bien estructurado para su propósito."
+
+================================================================================
+                          ✅ EJEMPLO DE RESPUESTA CON SUGERENCIAS (cuando solicitud es vaga)
+================================================================================
+
+Solicitud: "¿qué puedo mejorar en este proyecto?"
+Respuesta: "Aquí hay algunas mejoras que detecté:
+
+1. MEJORAR MANEJO DE ERRORES - Agregar validaciones para índices de arrays
+2. UNIFICAR IDIOMA - Los mensajes están en español e inglés mezclados  
+3. MODULARIZAR CÓDIG0 - Extraer funciones reutilizables a un archivo utils
+4. OPTIMIZAR RENDIMIENTO - Usar caches para cálculos repetitivos
+5. AÑADIR DOCUMENTACIÓN - Comentar funciones principales
+
+Elige las que quieras que implemente (ej: "1,3" o "implementa la 2 y 4")"
+
+================================================================================
+                          ✅ EJEMPLO DE RESPUESTA EN MODO PLAN (solo si necesitas análisis detallado)
 ================================================================================
 
 <ANÁLISIS>
@@ -425,8 +532,9 @@ def get_file_contents(project_path, selected_paths):
             
             try:
                 with open(path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    lines.append(content)
+                    content_lines = f.readlines()
+                    for i, line in enumerate(content_lines, start=1):
+                        lines.append(f"{i:4d}: {line.rstrip()}")
             except Exception as e:
                 lines.append(f"[ERROR al leer: {str(e)}]")
             
@@ -465,8 +573,7 @@ def generate_instruction_file(project_path, selected_paths, user_prompt, mode="b
     
     output.append(get_project_structure(project_path, selected_paths))
     
-    if mode == "build":
-        output.append(get_file_contents(project_path, selected_paths))
+    output.append(get_file_contents(project_path, selected_paths))
     
     output.append("=" * 80)
     
@@ -478,8 +585,11 @@ def generate_instruction_file(project_path, selected_paths, user_prompt, mode="b
         output.append("Si necesitas ver más código de algún archivo, PIDE que te lo proporcionen.")
         output.append("NO asumas cómo funcionan funciones/variables que no están en el código mostrado.")
         output.append("")
-        output.append("Responde SOLO con los cambios usando el formato XML especificado.")
-        output.append("Si no puedes realizar un cambio, usa el formato <ERROR>.")
+        output.append("📝 CÓMO RESPONDER:")
+        output.append("- Delimita tu respuesta con bloques de código (```xml ... ```)")
+        output.append("- Responde SOLO con los cambios usando el formato XML especificado")
+        output.append("- Si no puedes realizar un cambio, usa el formato <ERROR>")
+        output.append("- NO escribas explicaciones fuera de los bloques de código")
     else:
         output.append("                    ✅ INSTRUCCIONES GENERADAS (MODO PLAN)")
         output.append("=" * 80)

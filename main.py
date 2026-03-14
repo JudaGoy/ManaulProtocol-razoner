@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from CTkFileDialog import askdirectory
+from tkinter import filedialog
 import os
 import tkinter as tk
 from tkinter import ttk
@@ -122,7 +122,7 @@ class AICodeEditor(ctk.CTk):
         
         self.btn_check_all = ctk.CTkButton(
             self.sidebar,
-            text="☑️ Seleccionar Todos",
+            text="Seleccionar Todos",
             command=self.check_all_files,
             height=35
         )
@@ -130,40 +130,11 @@ class AICodeEditor(ctk.CTk):
         
         self.btn_uncheck_all = ctk.CTkButton(
             self.sidebar,
-            text="⬜ Deseleccionar Todos",
+            text="Deseleccionar Todos",
             command=self.uncheck_all_files,
             height=35
         )
         self.btn_uncheck_all.pack(pady=5, padx=20, fill="x")
-        
-        separator3 = ctk.CTkFrame(self.sidebar, height=2)
-        separator3.pack(pady=20, padx=20, fill="x")
-        
-        self.btn_create_file = ctk.CTkButton(
-            self.sidebar,
-            text="📄 Crear Archivo",
-            command=self.create_file,
-            height=35
-        )
-        self.btn_create_file.pack(pady=5, padx=20, fill="x")
-        
-        self.btn_create_folder = ctk.CTkButton(
-            self.sidebar,
-            text="📁 Crear Carpeta",
-            command=self.create_folder,
-            height=35
-        )
-        self.btn_create_folder.pack(pady=5, padx=20, fill="x")
-        
-        self.btn_delete = ctk.CTkButton(
-            self.sidebar,
-            text="🗑️ Eliminar Seleccionado",
-            command=self.delete_selected,
-            height=35,
-            fg_color="#8B0000",
-            hover_color="#A00000"
-        )
-        self.btn_delete.pack(pady=5, padx=20, fill="x")
     
     def setup_main_content(self):
         self.main_content.grid_columnconfigure(0, weight=1)
@@ -240,7 +211,7 @@ class AICodeEditor(ctk.CTk):
         self.tree.bind("<Button-1>", self.on_tree_click)
     
     def select_project(self):
-        folder = askdirectory(title="Seleccionar Proyecto")
+        folder = filedialog.askdirectory(title="Seleccionar Proyecto")
         if folder:
             self.project_path = folder
             self.lbl_project.configure(text=f"Proyecto:\n{os.path.basename(folder)}")
@@ -250,7 +221,16 @@ class AICodeEditor(ctk.CTk):
             self.btn_select_changes.configure(state="normal")
     
     def select_changes_folder(self):
-        folder = askdirectory(title="Seleccionar Carpeta de Cambios")
+        default_changes_folder = os.path.join(self.project_path, "_changes")
+        
+        if not os.path.exists(default_changes_folder):
+            os.makedirs(default_changes_folder, exist_ok=True)
+        
+        folder = filedialog.askdirectory(
+            title="Seleccionar Carpeta de Cambios",
+            initialdir=default_changes_folder
+        )
+        
         if folder:
             self.changes_path = folder
             self.lbl_project.configure(
@@ -283,6 +263,10 @@ class AICodeEditor(ctk.CTk):
         
         for item in items:
             if item.startswith('.'):
+                continue
+            if '_instrucciones_' in item:
+                continue
+            if item == '_changes':
                 continue
             path = os.path.join(folder, item)
             if os.path.isdir(path):
@@ -414,18 +398,20 @@ class AICodeEditor(ctk.CTk):
             )
     
     def check_all_files(self):
-        for path, selected in self.selected_files.items():
+        for path in self.selected_files:
             self.selected_files[path] = True
             if path in self.file_tree_items:
                 item = self.file_tree_items[path]
-                self.tree.item(item, text=self.tree.item(item)["text"].replace("⬜", "☑️"))
+                text = self.tree.item(item, "text")
+                self.tree.item(item, text=text.replace("⬜", "☑️"))
     
     def uncheck_all_files(self):
-        for path, selected in self.selected_files.items():
+        for path in self.selected_files:
             self.selected_files[path] = False
             if path in self.file_tree_items:
                 item = self.file_tree_items[path]
-                self.tree.item(item, text=self.tree.item(item)["text"].replace("☑️", "⬜"))
+                text = self.tree.item(item, "text")
+                self.tree.item(item, text=text.replace("☑️", "⬜"))
     
     def generate_instructions(self):
         from core.prompt_generator import generate_instruction_file
@@ -441,6 +427,10 @@ class AICodeEditor(ctk.CTk):
         if not prompt.strip():
             self.show_error("Por favor escribe las instrucciones para la IA")
             return
+        
+        changes_folder = os.path.join(self.project_path, "_changes")
+        if not os.path.exists(changes_folder):
+            os.makedirs(changes_folder, exist_ok=True)
         
         output_path = generate_instruction_file(
             self.project_path,
@@ -459,10 +449,18 @@ class AICodeEditor(ctk.CTk):
         from core.change_parser import parse_changes
         from ui.change_reviewer import ChangeReviewerWindow
         
+        print(f"DEBUG - project_path: {self.project_path}")
+        print(f"DEBUG - changes_path: {self.changes_path}")
+        
         changes, errors = parse_changes(self.changes_path, self.project_path)
         
+        print(f"DEBUG - cambios encontrados: {len(changes)}")
+        print(f"DEBUG - errores: {len(errors)}")
+        for e in errors:
+            print(f"DEBUG error: {e}")
+        
         if not changes:
-            self.show_error("No se encontraron cambios para procesar")
+            self.show_error(f"No se encontraron cambios para procesar\nErrors: {errors}")
             return
         
         reviewer = ChangeReviewerWindow(self, self.project_path, changes)
@@ -493,161 +491,6 @@ class AICodeEditor(ctk.CTk):
         ).pack(expand=True)
         
         ctk.CTkButton(success_win, text="Aceptar", command=success_win.destroy).pack(pady=10)
-    
-    def create_file(self):
-        if not self.project_path:
-            self.show_error("Selecciona un proyecto primero")
-            return
-        
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Crear Archivo")
-        dialog.geometry("400x150")
-        
-        ctk.CTkLabel(dialog, text="Nombre del archivo:").pack(pady=10, padx=20, anchor="w")
-        
-        entry = ctk.CTkEntry(dialog, width=350)
-        entry.pack(pady=5, padx=20)
-        
-        def create():
-            filename = entry.get().strip()
-            if not filename:
-                self.show_error("Ingresa un nombre de archivo")
-                return
-            
-            rel_path = filename if not self.selected_files else None
-            
-            selected_paths = [p for p, s in self.selected_files.items() if s]
-            if selected_paths:
-                base_path = selected_paths[0]
-                if os.path.isdir(base_path):
-                    rel_path = os.path.relpath(base_path, self.project_path)
-                    file_path = os.path.join(self.project_path, rel_path, filename)
-                else:
-                    folder = os.path.dirname(base_path)
-                    rel_path = os.path.relpath(folder, self.project_path)
-                    file_path = os.path.join(folder, filename)
-            else:
-                file_path = os.path.join(self.project_path, filename)
-            
-            try:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    f.write("")
-                self.load_project_files(self.project_path)
-                self.show_success(f"Archivo creado:\n{filename}")
-                dialog.destroy()
-            except Exception as e:
-                self.show_error(f"Error al crear archivo: {str(e)}")
-        
-        ctk.CTkButton(dialog, text="Crear", command=create).pack(pady=15)
-    
-    def create_folder(self):
-        if not self.project_path:
-            self.show_error("Selecciona un proyecto primero")
-            return
-        
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Crear Carpeta")
-        dialog.geometry("400x150")
-        
-        ctk.CTkLabel(dialog, text="Nombre de la carpeta:").pack(pady=10, padx=20, anchor="w")
-        
-        entry = ctk.CTkEntry(dialog, width=350)
-        entry.pack(pady=5, padx=20)
-        
-        def create():
-            foldername = entry.get().strip()
-            if not foldername:
-                self.show_error("Ingresa un nombre de carpeta")
-                return
-            
-            selected_paths = [p for p, s in self.selected_files.items() if s]
-            
-            if selected_paths:
-                base_path = selected_paths[0]
-                if os.path.isfile(base_path):
-                    folder = os.path.dirname(base_path)
-                else:
-                    folder = base_path
-            else:
-                folder = self.project_path
-            
-            folder_path = os.path.join(folder, foldername)
-            
-            try:
-                os.makedirs(folder_path, exist_ok=True)
-                self.load_project_files(self.project_path)
-                self.show_success(f"Carpeta creada:\n{foldername}")
-                dialog.destroy()
-            except Exception as e:
-                self.show_error(f"Error al crear carpeta: {str(e)}")
-        
-        ctk.CTkButton(dialog, text="Crear", command=create).pack(pady=15)
-    
-    def delete_selected(self):
-        selected_paths = [p for p, s in self.selected_files.items() if s]
-        
-        if not selected_paths:
-            self.show_error("No hay archivos o carpetas seleccionados")
-            return
-        
-        confirm = ctk.CTkToplevel(self)
-        confirm.title("Confirmar eliminación")
-        confirm.geometry("400x200")
-        
-        items_count = len(selected_paths)
-        
-        ctk.CTkLabel(
-            confirm,
-            text=f"¿Eliminar {items_count} elemento(s)?",
-            font=ctk.CTkFont(size=16, weight="bold")
-        ).pack(pady=20)
-        
-        ctk.CTkLabel(
-            confirm,
-            text="Esta acción no se puede deshacer",
-            text_color="red"
-        ).pack(pady=5)
-        
-        btn_frame = ctk.CTkFrame(confirm, fg_color="transparent")
-        btn_frame.pack(pady=20)
-        
-        def do_delete():
-            errors = []
-            for path in selected_paths:
-                try:
-                    if os.path.isfile(path):
-                        os.remove(path)
-                    elif os.path.isdir(path):
-                        import shutil
-                        shutil.rmtree(path)
-                except Exception as e:
-                    errors.append(f"{os.path.basename(path)}: {str(e)}")
-            
-            self.selected_files = {}
-            self.file_tree_items = {}
-            self.load_project_files(self.project_path)
-            
-            if errors:
-                self.show_error("Errores:\n" + "\n".join(errors))
-            else:
-                self.show_success(f"Eliminados {items_count} elemento(s)")
-            
-            confirm.destroy()
-        
-        ctk.CTkButton(
-            btn_frame,
-            text="Eliminar",
-            command=do_delete,
-            fg_color="red",
-            width=120
-        ).pack(side="left", padx=10)
-        
-        ctk.CTkButton(
-            btn_frame,
-            text="Cancelar",
-            command=confirm.destroy,
-            width=120
-        ).pack(side="left", padx=10)
 
 
 if __name__ == "__main__":

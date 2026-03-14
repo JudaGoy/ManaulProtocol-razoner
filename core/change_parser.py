@@ -8,11 +8,8 @@ from typing import List, Optional
 class Change:
     file_path: str
     action: str
-    position_type: str
-    start_line: Optional[int]
-    end_line: Optional[int]
-    code: str
-    original_lines: Optional[List[str]] = None
+    old_code: str
+    new_code: str
     applied: bool = False
 
 
@@ -59,6 +56,12 @@ def parse_xml_content(content, project_path):
     
     content = content.strip()
     
+    import re
+    content = re.sub(r'^```xml\s*', '', content, flags=re.MULTILINE)
+    content = re.sub(r'\s*```$', '', content, flags=re.MULTILINE)
+    content = re.sub(r'^```\s*', '', content, flags=re.MULTILINE)
+    content = re.sub(r'```', '', content)
+    
     cambio_blocks = content.split('</CAMBIOS>')
     
     for block in cambio_blocks:
@@ -77,23 +80,20 @@ def parse_xml_content(content, project_path):
             archivo = root.findtext('ARCHIVO', '').strip()
             accion = root.findtext('ACCION', '').strip().lower()
             
-            posicion = root.find('POSICION')
-            if posicion is not None:
-                tipo = posicion.findtext('TIPO', 'lineas').strip().lower()
-                inicio = posicion.findtext('INICIO', '').strip()
-                fin = posicion.findtext('FIN', '').strip()
+            old_code_elem = root.find('CODIGO_ANTIGUO')
+            if old_code_elem is not None:
+                old_code = old_code_elem.text or ''
             else:
-                tipo = 'lineas'
-                inicio = ''
-                fin = ''
+                old_code = ''
             
-            codigo_elem = root.find('CODIGO')
-            if codigo_elem is not None:
-                codigo = codigo_elem.text or ''
+            new_code_elem = root.find('CODIGO_NUEVO')
+            if new_code_elem is not None:
+                new_code = new_code_elem.text or ''
             else:
-                codigo = ''
+                new_code = ''
             
-            codigo = codigo.strip()
+            old_code = old_code.strip()
+            new_code = new_code.strip()
             
             if archivo:
                 abs_path = os.path.join(project_path, archivo)
@@ -101,10 +101,8 @@ def parse_xml_content(content, project_path):
                 change = Change(
                     file_path=abs_path,
                     action=accion,
-                    position_type=tipo,
-                    start_line=int(inicio) if inicio else None,
-                    end_line=int(fin) if fin else None,
-                    code=codigo
+                    old_code=old_code,
+                    new_code=new_code
                 )
                 
                 changes.append(change)
@@ -153,30 +151,15 @@ def parse_xml_content(content, project_path):
     return changes, errors
 
 
-def get_original_lines(change: Change) -> List[str]:
+def get_original_code(change: Change) -> str:
     if not os.path.exists(change.file_path):
-        return []
+        return ""
     
     try:
         with open(change.file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        if change.position_type == 'inicio':
-            return lines[:1] if lines else []
-        elif change.position_type == 'final':
-            return lines[-1:] if lines else []
-        elif change.start_line and change.end_line:
-            start_idx = max(0, change.start_line - 1)
-            end_idx = min(len(lines), change.end_line)
-            return lines[start_idx:end_idx]
-        elif change.start_line:
-            idx = max(0, change.start_line - 1)
-            return [lines[idx]] if idx < len(lines) else []
-        
-        return []
-        
+            return f.read()
     except Exception:
-        return []
+        return ""
 
 
 def apply_change(change: Change) -> bool:
@@ -206,7 +189,7 @@ def apply_change(change: Change) -> bool:
             if parent_dir and not os.path.exists(parent_dir):
                 os.makedirs(parent_dir, exist_ok=True)
             with open(change.file_path, 'w', encoding='utf-8') as f:
-                f.write(change.code)
+                f.write(change.new_code)
             change.applied = True
             return True
         
@@ -214,31 +197,15 @@ def apply_change(change: Change) -> bool:
             return False
         
         with open(change.file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+            content = f.read()
         
-        new_code_lines = change.code.split('\n')
-        
-        if change.position_type == 'inicio':
-            lines = new_code_lines + ['\n'] + lines
-        elif change.position_type == 'final':
-            if lines and lines[-1] != '\n':
-                lines[-1] = lines[-1] + '\n'
-            lines.extend(['\n'] + new_code_lines)
-        elif change.action == 'eliminar':
-            if change.start_line and change.end_line:
-                start_idx = max(0, change.start_line - 1)
-                end_idx = min(len(lines), change.end_line)
-                lines = lines[:start_idx] + lines[end_idx:]
-        elif change.start_line and change.end_line:
-            start_idx = max(0, change.start_line - 1)
-            end_idx = min(len(lines), change.end_line)
-            lines = lines[:start_idx] + new_code_lines + ['\n'] + lines[end_idx:]
-        elif change.start_line:
-            idx = max(0, change.start_line - 1)
-            lines = lines[:idx] + new_code_lines + ['\n'] + lines[idx + 1:]
+        if change.old_code in content:
+            new_content = content.replace(change.old_code, change.new_code, 1)
+        else:
+            return False
         
         with open(change.file_path, 'w', encoding='utf-8') as f:
-            f.writelines(lines)
+            f.write(new_content)
         
         change.applied = True
         return True
@@ -267,7 +234,7 @@ def get_file_diff(change: Change) -> tuple:
             return [], [f"📁 Crear carpeta: {os.path.basename(change.file_path)}"]
         
         if change.action == 'crear':
-            return [], [f"📄 Crear archivo con contenido:", change.code]
+            return [], [f"📄 Crear archivo con contenido:", change.new_code]
         
         if change.action == 'eliminar_archivo':
             if os.path.exists(change.file_path):
@@ -281,26 +248,10 @@ def get_file_diff(change: Change) -> tuple:
         if change.action == 'eliminar_carpeta':
             return [], [f"🗑️ Eliminar carpeta: {os.path.basename(change.file_path)}"]
         
-        if not os.path.exists(change.file_path):
-            return [], []
+        old_lines = change.old_code.split('\n') if change.old_code else []
+        new_lines = change.new_code.split('\n') if change.new_code else []
         
-        with open(change.file_path, 'r', encoding='utf-8') as f:
-            current_lines = f.readlines()
-        
-        new_code_lines = change.code.split('\n')
-        
-        old_lines = []
-        
-        if change.position_type == 'inicio':
-            old_lines = current_lines[:len(new_code_lines)] if current_lines else []
-        elif change.position_type == 'final':
-            old_lines = current_lines[-len(new_code_lines):] if current_lines else []
-        elif change.start_line and change.end_line:
-            start_idx = max(0, change.start_line - 1)
-            end_idx = min(len(current_lines), change.end_line)
-            old_lines = current_lines[start_idx:end_idx]
-        
-        return old_lines, new_code_lines
+        return old_lines, new_lines
         
     except Exception:
         return [], []

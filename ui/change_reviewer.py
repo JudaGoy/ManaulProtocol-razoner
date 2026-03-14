@@ -27,11 +27,12 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
         header = ctk.CTkFrame(self)
         header.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
         
-        ctk.CTkLabel(
+        self.header_label = ctk.CTkLabel(
             header,
             text=f"📋 Cambios detectados: {len(self.changes)}",
             font=ctk.CTkFont(size=18, weight="bold")
-        ).pack(side="left", padx=10)
+        )
+        self.header_label.pack(side="left", padx=10)
         
         btn_frame = ctk.CTkFrame(header)
         btn_frame.pack(side="right", padx=10)
@@ -92,19 +93,9 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
             'eliminar_carpeta': '🗑️ Eliminar carpeta'
         }.get(change.action, change.action)
         
-        position_text = ""
-        if change.position_type == 'inicio':
-            position_text = "al inicio"
-        elif change.position_type == 'final':
-            position_text = "al final"
-        elif change.start_line and change.end_line:
-            position_text = f"líneas {change.start_line}-{change.end_line}"
-        elif change.start_line:
-            position_text = f"línea {change.start_line}"
-        
         ctk.CTkLabel(
             header,
-            text=f"{action_text} {position_text}",
+            text=f"{action_text}",
             font=ctk.CTkFont(size=12)
         ).pack(side="right")
         
@@ -136,11 +127,6 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
             
             if new_lines:
                 diff_content += "\n+++ Código nuevo (+):\n"
-                for line in new_lines:
-                    diff_content += f"+ {line.rstrip()}\n"
-            
-            if not old_lines and change.position_type in ['inicio', 'final']:
-                diff_content = "+++ Código nuevo (+):\n"
                 for line in new_lines:
                     diff_content += f"+ {line.rstrip()}\n"
         
@@ -186,6 +172,7 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
                 widget_data['accepted'] = True
                 widget_data['card'].configure(fg_color="#1a3d1a")
                 self.update_status()
+                self.hide_applied_change(index)
             else:
                 self.show_error(f"No se pudo aplicar el cambio {index + 1}")
     
@@ -193,9 +180,11 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
         widget_data = self.change_widgets[index]
         widget_data['card'].configure(fg_color="#3d1a1a")
         self.update_status()
+        self.hide_applied_change(index)
     
     def accept_all(self):
         accepted_count = 0
+        indices_to_hide = []
         for i, widget_data in self.change_widgets.items():
             if not widget_data['accepted']:
                 success = apply_change(widget_data['change'])
@@ -203,14 +192,35 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
                     widget_data['accepted'] = True
                     widget_data['card'].configure(fg_color="#1a3d1a")
                     accepted_count += 1
+                    indices_to_hide.append(i)
         
         self.update_status()
+        
+        for i in indices_to_hide:
+            self.hide_applied_change(i)
+        
         self.show_info(f"Se aplicaron {accepted_count} cambios")
     
     def reject_all(self):
-        for widget_data in self.change_widgets.values():
+        indices_to_hide = []
+        for i, widget_data in self.change_widgets.items():
             widget_data['card'].configure(fg_color="#3d1a1a")
+            indices_to_hide.append(i)
         self.update_status()
+        
+        for i in indices_to_hide:
+            self.hide_applied_change(i)
+    
+    def hide_applied_change(self, index):
+        widget_data = self.change_widgets.get(index)
+        if widget_data and widget_data['card']:
+            widget_data['card'].pack_forget()
+            del self.change_widgets[index]
+            self.update_count_label()
+    
+    def update_count_label(self):
+        remaining = len(self.change_widgets)
+        self.header_label.configure(text=f"📋 Cambios restantes: {remaining}")
     
     def update_status(self):
         accepted = sum(1 for w in self.change_widgets.values() if w['accepted'])
