@@ -322,19 +322,12 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         
         content = self.text_content.get("1.0", "end-1c")
         
-        block_start = content.find('<CAMBIOS>')
-        if block_start == -1:
+        # Si tenemos el XML original del bloque, lo borramos específicamente
+        if hasattr(change, 'raw_xml') and change.raw_xml in content:
+            new_content = content.replace(change.raw_xml, "", 1)
+        else:
+            # Si por algo no coincide (ej. edición manual), no borramos nada para evitar errores
             return
-        
-        block_end = content.find('</CAMBIOS>', block_start)
-        if block_end == -1:
-            return
-        
-        block_end += len('</CAMBIOS>')
-        
-        full_block = content[block_start:block_end]
-        
-        new_content = content[:block_start] + content[block_end:]
         
         with open(self.changes_file, 'w', encoding='utf-8') as f:
             f.write(new_content)

@@ -35,8 +35,9 @@ Cada cambio debe seguir ESTE FORMATO EXACTO:
                         📖 TIPOS DE ACCIONES PERMITIDAS
 ================================================================================
 
-[IMPORTANTE] Usa SEARCH/REPLACE - NO uses números de línea. 
-Copia el código EXACTO que ves en los archivos y especifica qué cambiar.
+[IMPORTANTE] Usa SEARCH/REPLACE - NO uses números de línea.
+**NO incluyas los números de línea (como "9:", "30:") en el código.**
+Copia solo el código real, sin los números de línea que aparecen en las instrucciones.
 
 1. REEMPLAZAR: Cambiar código existente por código nuevo
    <ACCION>reemplazar</ACCION>
@@ -532,9 +533,8 @@ def get_file_contents(project_path, selected_paths):
             
             try:
                 with open(path, 'r', encoding='utf-8') as f:
-                    content_lines = f.readlines()
-                    for i, line in enumerate(content_lines, start=1):
-                        lines.append(f"{i:4d}: {line.rstrip()}")
+                    content = f.read()
+                    lines.append(content)
             except Exception as e:
                 lines.append(f"[ERROR al leer: {str(e)}]")
             

@@ -1,4 +1,5 @@
 import os
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import List, Optional
@@ -10,6 +11,7 @@ class Change:
     action: str
     old_code: str
     new_code: str
+    raw_xml: str = ""
     applied: bool = False
 
 
@@ -56,20 +58,10 @@ def parse_xml_content(content, project_path):
     
     content = content.strip()
     
-    import re
-    content = re.sub(r'^```xml\s*', '', content, flags=re.MULTILINE)
-    content = re.sub(r'\s*```$', '', content, flags=re.MULTILINE)
-    content = re.sub(r'^```\s*', '', content, flags=re.MULTILINE)
-    content = re.sub(r'```', '', content)
-    
-    cambio_blocks = content.split('</CAMBIOS>')
-    
+    # Extraer bloques <CAMBIOS> usando el contenido original para mantener el texto exacto
+    cambio_blocks = re.findall(r'<CAMBIOS>.*?</CAMBIOS>', content, re.DOTALL)
+
     for block in cambio_blocks:
-        if '<CAMBIOS>' not in block:
-            continue
-        
-        block = block + '</CAMBIOS>'
-        
         try:
             block_clean = block.strip()
             if not block_clean.startswith('<'):
@@ -102,7 +94,8 @@ def parse_xml_content(content, project_path):
                     file_path=abs_path,
                     action=accion,
                     old_code=old_code,
-                    new_code=new_code
+                    new_code=new_code,
+                    raw_xml=block
                 )
                 
                 changes.append(change)
