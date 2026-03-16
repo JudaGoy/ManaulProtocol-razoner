@@ -322,11 +322,20 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         
         content = self.text_content.get("1.0", "end-1c")
         
-        # Si tenemos el XML original del bloque, lo borramos específicamente
-        if hasattr(change, 'raw_xml') and change.raw_xml in content:
-            new_content = content.replace(change.raw_xml, "", 1)
+        import re
+        
+        if hasattr(change, 'raw_xml') and change.raw_xml:
+            raw = change.raw_xml.strip()
+            if raw in content:
+                new_content = content.replace(change.raw_xml, "", 1)
+            else:
+                pattern = re.escape(raw)
+                new_content = re.sub(pattern, "", content, count=1)
+        elif hasattr(change, 'old_code') and change.old_code:
+            old = change.old_code.strip()
+            pattern = re.escape(old)
+            new_content = re.sub(pattern, "", content, count=1)
         else:
-            # Si por algo no coincide (ej. edición manual), no borramos nada para evitar errores
             return
         
         with open(self.changes_file, 'w', encoding='utf-8') as f:
@@ -393,6 +402,8 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
     
     def show_error(self, message):
         error_win = ctk.CTkToplevel(self)
+        error_win.transient(self)
+        error_win.attributes("-topmost", True)
         error_win.title("Error")
         error_win.geometry("400x150")
         
@@ -406,6 +417,8 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
     
     def show_info(self, message):
         info_win = ctk.CTkToplevel(self)
+        info_win.transient(self)
+        info_win.attributes("-topmost", True)
         info_win.title("Información")
         info_win.geometry("300x100")
         

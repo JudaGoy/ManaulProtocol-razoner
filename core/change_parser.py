@@ -56,36 +56,52 @@ def parse_xml_content(content, project_path):
     changes = []
     errors = []
     
-    content = content.strip()
+    import re
     
-    # Extraer bloques <CAMBIOS> usando el contenido original para mantener el texto exacto
-    cambio_blocks = re.findall(r'<CAMBIOS>.*?</CAMBIOS>', content, re.DOTALL)
-
-    for block in cambio_blocks:
+    # Buscar bloques usando una estrategia más robusta
+    # Encontrar todas las posiciones de <CAMBIOS> y </CAMBIOS>
+    start_positions = [m.start() for m in re.finditer(r'<CAMBIOS>', content)]
+    end_positions = [m.end() for m in re.finditer(r'</CAMBIOS>', content)]
+    
+    # Emparejar starts con ends
+    blocks = []
+    for start in start_positions:
+        # Encontrar el </CAMBIOS> más cercano después de este start
+        for end in end_positions:
+            if end > start:
+                blocks.append(content[start:end])
+                break
+    
+    for block in blocks:
         try:
-            block_clean = block.strip()
-            if not block_clean.startswith('<'):
+            # Extraer ARCHIVO
+            archivo_match = re.search(r'<ARCHIVO>([^<]+)</ARCHIVO>', block)
+            if not archivo_match:
                 continue
-                
-            root = ET.fromstring(block_clean)
             
-            archivo = root.findtext('ARCHIVO', '').strip()
-            accion = root.findtext('ACCION', '').strip().lower()
+            # Extraer ACCION
+            accion_match = re.search(r'<ACCION>([^<]+)</ACCION>', block)
             
-            old_code_elem = root.find('CODIGO_ANTIGUO')
-            if old_code_elem is not None:
-                old_code = old_code_elem.text or ''
-            else:
-                old_code = ''
+            # Extraer CODIGO_ANTIGUO
+            old_code = ""
+            old_start = block.find('<CODIGO_ANTIGUO>')
+            if old_start != -1:
+                old_start += len('<CODIGO_ANTIGUO>')
+                old_end = block.find('</CODIGO_ANTIGUO>', old_start)
+                if old_end != -1:
+                    old_code = block[old_start:old_end]
             
-            new_code_elem = root.find('CODIGO_NUEVO')
-            if new_code_elem is not None:
-                new_code = new_code_elem.text or ''
-            else:
-                new_code = ''
+            # Extraer CODIGO_NUEVO
+            new_code = ""
+            new_start = block.find('<CODIGO_NUEVO>')
+            if new_start != -1:
+                new_start += len('<CODIGO_NUEVO>')
+                new_end = block.find('</CODIGO_NUEVO>', new_start)
+                if new_end != -1:
+                    new_code = block[new_start:new_end]
             
-            old_code = old_code.strip()
-            new_code = new_code.strip()
+            archivo = archivo_match.group(1).strip()
+            accion = accion_match.group(1).strip().lower() if accion_match else ''
             
             if archivo:
                 abs_path = os.path.join(project_path, archivo)
@@ -93,24 +109,17 @@ def parse_xml_content(content, project_path):
                 change = Change(
                     file_path=abs_path,
                     action=accion,
-                    old_code=old_code,
-                    new_code=new_code,
+                    old_code=old_code.strip(),
+                    new_code=new_code.strip(),
                     raw_xml=block
                 )
                 
                 changes.append(change)
                 
-        except ET.ParseError as e:
-            errors.append(ChangeError(
-                error_type="xml_invalido",
-                message="Error al parsear XML",
-                file_path="",
-                detail=str(e)
-            ))
         except Exception as e:
             errors.append(ChangeError(
                 error_type="desconocido",
-                message="Error desconocido",
+                message="Error al parsear bloque",
                 file_path="",
                 detail=str(e)
             ))
@@ -186,8 +195,26 @@ def apply_change(change: Change) -> bool:
             change.applied = True
             return True
         
+        if change.action == 'insertar':
+            if not os.path.exists(change.file_path):
+                return False
+            
+            with open(change.file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            old_code_stripped = change.old_code.strip()
+            
+            if old_code_stripped and old_code_stripped in content:
+                new_content = content.replace(old_code_stripped, old_code_stripped + "\n" + change.new_code, 1)
+                if new_content != content:
+                    with open(change.file_path, 'w', encoding='utf-8') as f:
+                        f.write(new_content)
+                    change.applied = True
+                    return True
+            
+            return False
+        
         if not os.path.exists(change.file_path):
-            print(f"DEBUG: Archivo no existe: {change.file_path}")
             return False
         
         with open(change.file_path, 'r', encoding='utf-8') as f:
@@ -196,12 +223,7 @@ def apply_change(change: Change) -> bool:
         old_code_stripped = change.old_code.strip()
         content_stripped = content.strip()
         
-        print(f"DEBUG old_code ({len(old_code_stripped)} chars): {repr(old_code_stripped[:100])}")
-        print(f"DEBUG content ({len(content_stripped)} chars): {repr(content_stripped[:100])}")
-        print(f"DEBUG contains: {old_code_stripped in content_stripped}")
-        
         if not old_code_stripped:
-            print("DEBUG: old_code está vacío")
             return False
         
         if old_code_stripped in content_stripped:
@@ -209,7 +231,6 @@ def apply_change(change: Change) -> bool:
             if new_content == content:
                 new_content = content.replace(change.old_code.strip(), change.new_code, 1)
         else:
-            print("DEBUG: No se encontró el código")
             return False
         
         with open(change.file_path, 'w', encoding='utf-8') as f:

@@ -471,6 +471,8 @@ class AICodeEditor(ctk.CTk):
     
     def show_error(self, message):
         error_win = ctk.CTkToplevel(self)
+        error_win.transient(self)
+        error_win.attributes("-topmost", True)
         error_win.title("Error")
         error_win.geometry("400x150")
         
@@ -484,6 +486,8 @@ class AICodeEditor(ctk.CTk):
     
     def show_success(self, message):
         success_win = ctk.CTkToplevel(self)
+        success_win.transient(self)
+        success_win.attributes("-topmost", True)
         success_win.title("Éxito")
         success_win.geometry("500x200")
         

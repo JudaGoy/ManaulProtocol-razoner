@@ -234,6 +234,8 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
     
     def show_error(self, message):
         error_win = ctk.CTkToplevel(self)
+        error_win.transient(self)
+        error_win.attributes("-topmost", True)
         error_win.title("Error")
         error_win.geometry("300x100")
         
@@ -242,6 +244,8 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
     
     def show_info(self, message):
         info_win = ctk.CTkToplevel(self)
+        info_win.transient(self)
+        info_win.attributes("-topmost", True)
         info_win.title("Información")
         info_win.geometry("300x100")
         

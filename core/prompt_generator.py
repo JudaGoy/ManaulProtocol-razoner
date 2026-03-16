@@ -39,6 +39,9 @@ Cada cambio debe seguir ESTE FORMATO EXACTO:
 **NO incluyas los números de línea (como "9:", "30:") en el código.**
 Copia solo el código real, sin los números de línea que aparecen en las instrucciones.
 
+[IMPORTANTE] NO uses entidades HTML como &lt; &gt; &amp; etc.
+Usa los caracteres reales: < > & en lugar de &lt; &gt; &amp;
+
 1. REEMPLAZAR: Cambiar código existente por código nuevo
    <ACCION>reemplazar</ACCION>
    <CODIGO_ANTIGUO>
