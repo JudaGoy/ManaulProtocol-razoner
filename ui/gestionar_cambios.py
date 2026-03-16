@@ -14,6 +14,8 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         self.title("Gestionar Cambios")
         self.geometry("1000x700")
         
+        self.transient(parent)
+        
         self.project_path = project_path
         self.changes_file = changes_file
         self.change_widgets = {}

@@ -54,10 +54,10 @@ Usa los caracteres reales: < > & en lugar de &lt; &gt; &amp;
 2. INSERTAR: Agregar código nuevo después de código existente
    <ACCION>insertar</ACCION>
    <CODIGO_ANTIGUO>
-   // Código después del cual quieres insertar (no se modifica)
+   // Código después del cual quieres insertar (solo como referencia, NO se incluye en el resultado)
    </CODIGO_ANTIGUO>
    <CODIGO_NUEVO>
-   // Código existente + nuevo código insertado
+   // SOLO el código nuevo a insertar (NO repetitions el código de referencia)
    </CODIGO_NUEVO>
 
 3. ELIMINAR: Borrar código existente
@@ -84,8 +84,7 @@ Usa los caracteres reales: < > & en lugar de &lt; &gt; &amp;
    (últimas líneas del archivo)
    </CODIGO_ANTIGUO>
    <CODIGO_NUEVO>
-   (últimas líneas del archivo)
-   (nuevo código)
+   (código nuevo a agregar al final)
    </CODIGO_NUEVO>
 
 6. CREAR ARCHIVO NUEVO: Crear un archivo que no existe
@@ -160,9 +159,7 @@ def main():
     print("Hola")
     </CODIGO_ANTIGUO>
     <CODIGO_NUEVO>
-def main():
-    print("Hola")
-    print("Nuevo mensaje insertado")
+print("Nuevo mensaje insertado")
     </CODIGO_NUEVO>
 </CAMBIOS>
 
@@ -322,9 +319,114 @@ ATENCIÓN: Este es un cambio PEQUEÑO y ESPECÍFICO, no una revisión completa.
    - No reescribas código que no debe modificarse
 
 📌 SI EL CONTEXTO ES INSUFICIENTE:
-   - Si necesitas ver más código para hacer el cambio, PIDE que te lo muestren
-   - Usa: <ERROR contexto_insuficiente: describe qué necesitas>
-   - NO asumas cómo funciona el resto del código
+    - Si necesitas ver más código para hacer el cambio, PIDE que te lo muestren
+    - Usa: <ERROR contexto_insuficiente: describe qué necesitas>
+    - NO asumas cómo funciona el resto del código
+
+================================================================================
+                    🎨 CAMBIOS ESTÉTICOS Y PROBLEMAS AMBIGUOS
+===============================================================================
+
+[IMPORTANTE] Hay situaciones donde la solicitud del usuario puede ser vaga o
+tener múltiples interpretaciones válidas. En estos casos, NO generes cambios
+inmediatamente. En su lugar, presenta opciones para que el usuario elija.
+
+================================================================================
+                         🎨 CUANDO SOLICITAS UN CAMBIO ESTÉTICO
+===============================================================================
+
+Si el usuario pide un cambio relacionado con:
+- Diseño visual (colores, fuentes, espaciado, márgenes)
+- UI/UX (botones, formularios, layouts, animaciones)
+- Estilo de una página web o aplicación
+- "Hacerlo más moderno", "mejorar el look", "poner más bonito"
+
+Y NO tienes claro exactamente qué estilo quiere el usuario:
+
+✅ HAS ESTO:
+1. Detecta los elementos visuales relevantes (botones, formularios, header, etc.)
+2. Genera 3-5 IDEAS DE DISEÑO DIFERENTES en texto plano (NO en XML):
+
+---
+OPCIONES DE DISEÑO:
+
+1. [ESTILO MINIMALISTA] - Colores neutros, mucho espacio en blanco, bordes sutiles
+2. [ESTILO OSCURO] - Fondo oscuro, acentos en colores brillantes, tema night mode
+3. [ESTILO VIBRANTE] - Colores饱和ados, gradientes, bordes redondeados grandes
+4. [ESTILO PROFESIONAL] - Colores corporativos, bordes cuadrados, tipografía limpia
+5. [ESTILO PLAYERO] - Colores azules y arena, ondas decorativas, tema marítimo
+
+¿Cuál prefieres? (responde con el número: 1, 2, 3, 4 o 5)
+---
+
+O si es más específico, adapta las opciones al contexto.
+
+================================================================================
+                         🔧 CUANDO EL PROBLEMA ES AMBIGUO
+================================================================================
+
+Si la solicitud del usuario es vaga como:
+- "Arreglar el error"
+- "Hacer que funcione"
+- "Mejorar el rendimiento"
+- "Optimizar el código"
+- "Agregar validación"
+
+Y hay VARIAS MANERAS de interpretar o resolver el problema:
+
+✅ HAS ESTO:
+1. Analiza el código y detecta las posibles interpretaciones
+2. Presenta 3-5 ENFOQUES DE SOLUCIÓN en texto plano (NO en XML):
+
+---
+OPCIONES DE SOLUCIÓN:
+
+1. [ENFOQUE SIMPLE] - Solución básica que resuelve el problema inmediatamente
+   - Cambios mínimos, bajo riesgo
+   - Ejemplo: agregar un if para validar
+
+2. [ENFOQUE ROBUSTO] - Solución más completa con validaciones adicionales
+   - Mejor manejo de errores, más seguro
+   - Ejemplo: agregar try-except, validaciones, logs
+
+3. [ENFOQUE MODERNO] - Usar librerías/patrones actuales
+   - Código más limpio y mantenible
+   - Ejemplo: usar dataclasses, type hints, decorators
+
+4. [ENFOQUE RÁPIDO] - Solución temporal rápida
+   - Funciona pero no es ideal a largo plazo
+   - Solo si hay mucha prisa
+
+5. [ENFOQUE COMPLETO] - Solución integral con tests y documentación
+   - Incluye tests, comentarios, ejemplos
+   - Mayor tiempo de implementación
+
+¿Cuál prefieres? (responde con el número: 1, 2, 3, 4 o 5)
+---
+
+================================================================================
+                         ⚠️ IMPORTANTE - CUANDO PRESENTAR OPCIONES
+================================================================================
+
+✅ PRESENTA OPCIONES cuando:
+- El usuario dice "hazlo más bonito", "mejora el diseño"
+- El usuario dice "arreglar" sin especificar cómo
+- La solicitud tiene múltiples interpretaciones válidas
+- No tienes suficiente información para saber qué quiere el usuario
+
+❌ NO PRESENTES OPCIONES cuando:
+- El usuario especifica exactamente qué quiere ("cambia el color azul a rojo")
+- El problema tiene una solución clara y única
+- El usuario dio instrucciones detalladas y precisas
+
+================================================================================
+                              💡 CÓMO CONTINUAR DESPUÉS
+================================================================================
+
+Después de presentar las opciones:
+1. ESPERA a que el usuario responda con un número (ej: "3")
+2. UNA VEZ que el usuario elija, entonces genera los cambios XML correspondientes
+3. NO generes cambios XML antes de que el usuario elija una opción
 
 ================================================================================
 '''
@@ -535,7 +637,7 @@ def get_file_contents(project_path, selected_paths):
             lines.append("-" * 40)
             
             try:
-                with open(path, 'r', encoding='utf-8') as f:
+                with open(path, 'r', encoding='utf-8', errors='replace') as f:
                     content = f.read()
                     lines.append(content)
             except Exception as e:
@@ -612,7 +714,7 @@ def generate_instruction_file(project_path, selected_paths, user_prompt, mode="b
     output_filename = f"{project_name}_instrucciones_{mode_prefix}.txt"
     output_path = os.path.join(project_path, output_filename)
     
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, 'w', encoding='utf-8-sig') as f:
         f.write(output_text)
     
     return output_path
@@ -625,7 +727,7 @@ def get_selected_file_contents(project_path, selected_paths):
         if os.path.isfile(path):
             rel_path = os.path.relpath(path, project_path)
             try:
-                with open(path, 'r', encoding='utf-8') as f:
+                with open(path, 'r', encoding='utf-8', errors='replace') as f:
                     files_content[rel_path] = f.read()
             except Exception as e:
                 files_content[rel_path] = f"[ERROR al leer: {str(e)}]"

@@ -240,7 +240,9 @@ class AICodeEditor(ctk.CTk):
                 f.write("")
         
         from ui.gestionar_cambios import GestionarCambiosWindow
-        GestionarCambiosWindow(self, self.project_path, changes_file)
+        win = GestionarCambiosWindow(self, self.project_path, changes_file)
+        win.lift()
+        win.focus_force()
     
     def load_project_files(self, folder):
         for item in self.tree.get_children():
@@ -468,6 +470,8 @@ class AICodeEditor(ctk.CTk):
             return
         
         reviewer = ChangeReviewerWindow(self, self.project_path, changes)
+        reviewer.lift()
+        reviewer.focus_force()
     
     def show_error(self, message):
         error_win = ctk.CTkToplevel(self)

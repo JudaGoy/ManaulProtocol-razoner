@@ -13,6 +13,9 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
         self.title("Revisor de Cambios")
         self.geometry("1000x700")
         
+        self.transient(parent)
+        self.attributes("-topmost", True)
+        
         self.project_path = project_path
         self.changes = changes
         self.change_widgets = {}
