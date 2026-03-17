@@ -1,8 +1,54 @@
 import os
 import re
+import html
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import List, Optional
+
+
+def normalize_text(text: str) -> str:
+    """Normaliza el texto para corregir problemas de codificación."""
+    
+    text = html.unescape(text)
+    
+    replacements = {
+        '├│': '│',
+        '├': '',
+        '│': '│',
+        'Â': '',
+        'â€™': "'",
+        'â€œ': '"',
+        'â€': '"',
+        'â€"': '—',
+        'â€"': '–',
+        'Ã': 'Á',
+        'Ã': 'É',
+        'Ã': 'Í',
+        'Ã': 'Ó',
+        'Ã': 'Ú',
+        'Ã±': 'ñ',
+        'Ã': 'á',
+        'Ã©': 'é',
+        'Ã­': 'í',
+        'Ã³': 'ó',
+        'Ãº': 'ú',
+        'â†': '→',
+        'â†': '←',
+        'â†': '↑',
+        'â†': '↓',
+        'â†': '→',
+    }
+    
+    for wrong, correct in replacements.items():
+        text = text.replace(wrong, correct)
+    
+    text = re.sub(r'&lt;', '<', text)
+    text = re.sub(r'&gt;', '>', text)
+    text = re.sub(r'&amp;', '&', text)
+    text = re.sub(r'&quot;', '"', text)
+    text = re.sub(r'&apos;', "'", text)
+    
+    return text
 
 
 @dataclass

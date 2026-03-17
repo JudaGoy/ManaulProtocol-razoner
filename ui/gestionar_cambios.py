@@ -4,7 +4,7 @@ from tkinter import scrolledtext
 from tkinter import ttk
 from typing import List
 
-from core.change_parser import Change, ChangeError, apply_change, get_file_diff, parse_xml_content
+from core.change_parser import Change, ChangeError, apply_change, get_file_diff, parse_xml_content, normalize_text
 
 
 class GestionarCambiosWindow(ctk.CTkToplevel):
@@ -144,6 +144,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         try:
             with open(self.changes_file, 'r', encoding='utf-8') as f:
                 content = f.read()
+            content = normalize_text(content)
             self.text_content.delete("1.0", "end")
             self.text_content.insert("1.0", content)
             self.scroll_to_bottom()
@@ -159,6 +160,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
     def save_content(self):
         try:
             content = self.text_content.get("1.0", "end-1c")
+            content = normalize_text(content)
             with open(self.changes_file, 'w', encoding='utf-8') as f:
                 f.write(content)
             self.load_changes()
