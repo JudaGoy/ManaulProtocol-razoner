@@ -1,5 +1,6 @@
 import customtkinter as ctk
 import os
+import difflib
 from tkinter import scrolledtext
 from tkinter import ttk
 from typing import List, Dict, Optional
@@ -7,6 +8,7 @@ from typing import List, Dict, Optional
 from core.change_parser import Change, ChangeError, apply_change, get_file_diff, parse_xml_content, normalize_text
 from utils.git_manager import get_status, get_history, commit, restore, get_commit_diff, get_default_commit_message, get_commit_count, get_file_at_commit, get_current_file_content, revert_file, get_modified_files_since_commit, get_commit_files, get_uncommitted_files, discard_all_changes
 from utils.apply_history import save_applied_code, get_apply_history, clear_apply_history, get_files_with_history, clear_all_apply_history
+from utils.file_watcher import ProjectWatcher
 
 
 class GestionarCambiosWindow(ctk.CTkToplevel):
@@ -23,8 +25,21 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         self.change_widgets = {}
         self.changes = []
         
+        self.watcher = ProjectWatcher(project_path, self.on_external_change)
+        self.watcher.iniciar()
+        
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        
         self.setup_ui()
         self.load_changes()
+    
+    def on_close(self):
+        if hasattr(self, 'watcher'):
+            self.watcher.detener()
+        self.destroy()
+    
+    def on_external_change(self):
+        self.load_data()
     
     def setup_ui(self):
         self.grid_columnconfigure(0, weight=1)
@@ -302,6 +317,8 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         if not widget_data['accepted']:
             change = widget_data['change']
             
+            self.watcher.ignorar = True
+            
             rel_path = os.path.relpath(change.file_path, self.project_path)
             
             current_code = ""
@@ -313,6 +330,8 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
                     pass
             
             success = apply_change(change)
+            
+            self.watcher.ignorar = False
             
             if success:
                 if current_code and change.action in ['reemplazar', 'insertar']:
@@ -372,6 +391,8 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         accepted_count = 0
         indices_to_hide = []
         
+        self.watcher.ignorar = True
+        
         for i in list(self.change_widgets.keys()):
             widget_data = self.change_widgets.get(i)
             if widget_data and not widget_data['accepted']:
@@ -396,6 +417,8 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
                     accepted_count += 1
                     self.remove_applied_block(i)
                     indices_to_hide.append(i)
+        
+        self.watcher.ignorar = False
         
         self.update_status()
         
@@ -597,14 +620,14 @@ class VersionControlWindow(ctk.CTkToplevel):
             diff_container,
             text="Original (Último Commit)",
             font=ctk.CTkFont(size=11, weight="bold"),
-            text_color="#ff6b6b"
+            text_color="#51cf66"
         ).grid(row=0, column=0, pady=(0, 5))
         
         ctk.CTkLabel(
             diff_container,
             text="Nuevo (Aplicado)",
             font=ctk.CTkFont(size=11, weight="bold"),
-            text_color="#51cf66"
+            text_color="#ff6b6b"
         ).grid(row=0, column=1, pady=(0, 5))
         
         self.original_text = scrolledtext.ScrolledText(
@@ -616,6 +639,10 @@ class VersionControlWindow(ctk.CTkToplevel):
         )
         self.original_text.grid(row=1, column=0, sticky="nsew", padx=(0, 2))
         
+        self.original_text.tag_config("eliminado", background="#3A1E1E")
+        self.original_text.tag_config("agregado", background="#1E3A1E")
+        self.original_text.tag_config("normal", background="#1E1E1E")
+        
         self.new_text = scrolledtext.ScrolledText(
             diff_container,
             font=("Consolas", 10),
@@ -624,6 +651,10 @@ class VersionControlWindow(ctk.CTkToplevel):
             wrap="none"
         )
         self.new_text.grid(row=1, column=1, sticky="nsew", padx=(2, 0))
+        
+        self.new_text.tag_config("eliminado", background="#3A1E1E")
+        self.new_text.tag_config("agregado", background="#1E3A1E")
+        self.new_text.tag_config("normal", background="#1E1E1E")
     
     def load_data(self):
         history = get_history(self.project_path, limit=1)
@@ -789,12 +820,40 @@ class VersionControlWindow(ctk.CTkToplevel):
             else:
                 self.diff_header_label.configure(text=f"📄 {filename} (Sincronizado)")
         
-        self.original_text.delete("1.0", "end")
-        self.original_text.insert("1.0", last_commit_code)
-        self.original_text.configure(state="disabled")
+        self.original_text.configure(state="normal")
+        self.new_text.configure(state="normal")
         
+        self.original_text.delete("1.0", "end")
         self.new_text.delete("1.0", "end")
-        self.new_text.insert("1.0", applied_code)
+        
+        original_lines = last_commit_code.split('\n') if last_commit_code else []
+        new_lines = applied_code.split('\n') if applied_code else []
+        
+        differ = difflib.Differ()
+        diff_result = list(differ.compare(original_lines, new_lines))
+        
+        orig_line_num = 1
+        new_line_num = 1
+        
+        for line in diff_result:
+            if line.startswith('  '):
+                content = line[2:]
+                self.original_text.insert("end", f"{orig_line_num:4d} │ {content}\n", "normal")
+                self.new_text.insert("end", f"{new_line_num:4d} │ {content}\n", "normal")
+                orig_line_num += 1
+                new_line_num += 1
+            elif line.startswith('- '):
+                content = line[2:]
+                self.original_text.insert("end", f"{orig_line_num:4d} │ {content}\n", "eliminado")
+                orig_line_num += 1
+                self.new_text.insert("end", f"     │ \n", "normal")
+            elif line.startswith('+ '):
+                content = line[2:]
+                self.original_text.insert("end", f"     │ \n", "normal")
+                self.new_text.insert("end", f"{new_line_num:4d} │ {content}\n", "agregado")
+                new_line_num += 1
+        
+        self.original_text.configure(state="disabled")
         self.new_text.configure(state="disabled")
     
     def revert_to_commit(self, filename: str):
@@ -823,7 +882,9 @@ class VersionControlWindow(ctk.CTkToplevel):
         btn_frame.pack(pady=10)
         
         def do_revert():
+            self.watcher.ignorar = True
             success, result = revert_file(self.project_path, filename, commit['hash'])
+            self.watcher.ignorar = False
             
             if success:
                 clear_apply_history(self.project_path, filename)
@@ -938,7 +999,9 @@ class VersionControlWindow(ctk.CTkToplevel):
         btn_frame.pack(pady=10)
         
         def do_revert():
+            self.watcher.ignorar = True
             success, msg = discard_all_changes(self.project_path)
+            self.watcher.ignorar = False
             
             if success:
                 git_status = get_status(self.project_path)
