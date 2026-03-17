@@ -5,6 +5,8 @@ import tkinter as tk
 from tkinter import ttk
 from tkinter import font
 
+from utils.file_watcher import ProjectWatcher
+
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
@@ -258,6 +260,14 @@ class AICodeEditor(ctk.CTk):
                     with open(gitignore_path, 'w', encoding='utf-8') as f:
                         f.write(existing_content)
                     print("Gitignore actualizado")
+            
+            self.current_folder = folder
+            
+            if hasattr(self, 'watcher') and self.watcher:
+                self.watcher.detener()
+            
+            self.watcher = ProjectWatcher(folder, self.on_new_item_created)
+            self.watcher.iniciar()
     
     def manage_changes(self):
         if not self.project_path:
@@ -336,6 +346,49 @@ class AICodeEditor(ctk.CTk):
             )
             self.file_tree_items[path] = file_item
             self.selected_files[path] = True
+    
+    def on_new_item_created(self):
+        if not hasattr(self, 'watcher') or not self.watcher:
+            return
+        if self.watcher.ignorar:
+            return
+        self.refresh_tree(select_new=True)
+    
+    def refresh_tree(self, select_new=False):
+        current_folder = getattr(self, 'current_folder', None)
+        if not current_folder:
+            return
+        
+        old_items = set(self.file_tree_items.keys())
+        
+        self.load_project_files(current_folder)
+        
+        if not select_new:
+            return
+        
+        new_items = set(self.file_tree_items.keys())
+        added_items = new_items - old_items
+        
+        if added_items:
+            for new_path in sorted(added_items):
+                if new_path in self.file_tree_items:
+                    item = self.file_tree_items[new_path]
+                    self.tree.selection_add(item)
+            
+            for new_path in added_items:
+                parent = os.path.dirname(new_path)
+                while parent and parent != current_folder:
+                    if parent in self.file_tree_items:
+                        self.tree.item(self.file_tree_items[parent], open=True)
+                    parent = os.path.dirname(parent)
+            
+            first_item = self.file_tree_items[sorted(added_items)[0]]
+            self.tree.see(first_item)
+    
+    def detener_watcher(self):
+        if hasattr(self, 'watcher') and self.watcher:
+            self.watcher.detener()
+            self.watcher = None
     
     def on_tree_select(self, event):
         pass
@@ -541,4 +594,5 @@ class AICodeEditor(ctk.CTk):
 
 if __name__ == "__main__":
     app = AICodeEditor()
+    app.protocol("WM_DELETE_WINDOW", lambda: (app.detener_watcher() if hasattr(app, 'watcher') and app.watcher else None, app.destroy()))
     app.mainloop()

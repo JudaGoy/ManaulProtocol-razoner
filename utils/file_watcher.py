@@ -12,6 +12,7 @@ class ProjectWatcher:
         self.observer = None
         self.lock = threading.Lock()
         self._historial_dir = os.path.join(path, '.apply_history')
+        self.ignore_patterns = {'.apply_history', '__pycache__', '.git', '.pyc', '.pyo', '.DS_Store'}
     
     def iniciar(self):
         self.observer = Observer()
@@ -29,18 +30,13 @@ class ProjectWatcher:
             if self.ignorar:
                 return True
         
-        if '.apply_history' in filepath:
-            return True
-        
-        if '__pycache__' in filepath:
-            return True
-        
-        if filepath.endswith('.pyc'):
-            return True
+        for pattern in self.ignore_patterns:
+            if pattern in filepath:
+                return True
         
         return False
     
-    def on_change(self, filepath):
+    def on_created(self, filepath):
         if self.debe_ignorar(filepath):
             return
         
@@ -51,10 +47,8 @@ class ChangeHandler(FileSystemEventHandler):
     def __init__(self, watcher):
         self.watcher = watcher
     
-    def on_modified(self, event):
-        if not event.is_directory:
-            self.watcher.on_change(event.src_path)
-    
     def on_created(self, event):
-        if not event.is_directory:
-            self.watcher.on_change(event.src_path)
+        self.watcher.on_created(event.src_path)
+    
+    def on_deleted(self, event):
+        self.watcher.on_created(event.src_path)

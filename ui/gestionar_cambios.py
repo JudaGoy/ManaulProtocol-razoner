@@ -20,6 +20,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         
         self.transient(parent)
         
+        self.main_window = parent
         self.project_path = project_path
         self.changes_file = changes_file
         self.change_widgets = {}
@@ -337,6 +338,10 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
                 if current_code and change.action in ['reemplazar', 'insertar']:
                     save_applied_code(self.project_path, rel_path, current_code)
                 
+                if change.action in ['crear', 'crear_carpeta']:
+                    if hasattr(self.main_window, 'refresh_tree'):
+                        self.main_window.refresh_tree(select_new=True)
+                
                 widget_data['accepted'] = True
                 widget_data['card'].configure(fg_color="#1a3d1a")
                 self.remove_applied_block(index)
@@ -412,6 +417,12 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
                     if current_code and change.action in ['reemplazar', 'insertar']:
                         save_applied_code(self.project_path, rel_path, current_code)
                     
+                    if change.action in ['crear', 'crear_carpeta']:
+                        if not hasattr(self, '_tree_refreshed'):
+                            self._tree_refreshed = True
+                            if hasattr(self.main_window, 'refresh_tree'):
+                                self.main_window.refresh_tree(select_new=True)
+                    
                     widget_data['accepted'] = True
                     widget_data['card'].configure(fg_color="#1a3d1a")
                     accepted_count += 1
@@ -419,6 +430,9 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
                     indices_to_hide.append(i)
         
         self.watcher.ignorar = False
+        
+        if hasattr(self.main_window, 'refresh_tree') and accepted_count > 0:
+            self.main_window.refresh_tree(select_new=True)
         
         self.update_status()
         
