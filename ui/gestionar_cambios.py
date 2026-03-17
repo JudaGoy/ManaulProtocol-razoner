@@ -2,9 +2,11 @@ import customtkinter as ctk
 import os
 from tkinter import scrolledtext
 from tkinter import ttk
-from typing import List
+from typing import List, Dict, Optional
 
 from core.change_parser import Change, ChangeError, apply_change, get_file_diff, parse_xml_content, normalize_text
+from utils.git_manager import get_status, get_history, commit, restore, get_commit_diff, get_default_commit_message, get_commit_count, get_file_at_commit, get_current_file_content, revert_file, get_modified_files_since_commit, get_commit_files, get_uncommitted_files, discard_all_changes
+from utils.apply_history import save_applied_code, get_apply_history, clear_apply_history, get_files_with_history, clear_all_apply_history
 
 
 class GestionarCambiosWindow(ctk.CTkToplevel):
@@ -55,14 +57,21 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             fg_color="red"
         ).pack(side="left", padx=5)
         
-        # Configurar estilo de la barra divisoria (sash)
+        ctk.CTkButton(
+            btn_frame,
+            text="📊 Control de Versiones",
+            command=self.show_version_control,
+            fg_color="#fd7e14",
+            width=160
+        ).pack(side="left", padx=5)
+        
         style = ttk.Style(self)
         style.theme_use("clam")
         style.configure(
             "TPanedwindow", 
-            background="#2B2B2B",  # Color de fondo de los frames
-            sashthickness=2,       # Grosor de la línea
-            sashpad=1,             # Área de agarre mínima
+            background="#2B2B2B",
+            sashthickness=2,
+            sashpad=1,
             borderwidth=0
         )
         
@@ -73,13 +82,13 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         paned.add(top_frame, weight=1)
         
         self.changes_container = ctk.CTkScrollableFrame(top_frame)
-        self.changes_container.pack(fill="both", expand=True, padx=5, pady=(5, 0)) # Quitamos pady inferior
+        self.changes_container.pack(fill="both", expand=True, padx=5, pady=(5, 0))
         
         bottom_frame = ctk.CTkFrame(paned, corner_radius=0)
         paned.add(bottom_frame, weight=1)
         
         text_container = ctk.CTkFrame(bottom_frame)
-        text_container.pack(fill="both", expand=True, padx=5, pady=(0, 5)) # Quitamos pady superior
+        text_container.pack(fill="both", expand=True, padx=5, pady=(0, 5))
         
         ctk.CTkLabel(
             text_container,
@@ -120,7 +129,6 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             width=120
         ).pack(side="right", padx=10, pady=5)
 
-        # Botón para bajar rápido (al lado de Guardar)
         ctk.CTkButton(
             self.status_frame,
             text="▼",
@@ -130,7 +138,6 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(size=14)
         ).pack(side="right", padx=2, pady=5)
 
-        # Botón para subir rápido (al lado de Bajar)
         ctk.CTkButton(
             self.status_frame,
             text="▲",
@@ -294,16 +301,29 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         
         if not widget_data['accepted']:
             change = widget_data['change']
+            
+            rel_path = os.path.relpath(change.file_path, self.project_path)
+            
+            current_code = ""
+            if os.path.exists(change.file_path):
+                try:
+                    with open(change.file_path, 'r', encoding='utf-8') as f:
+                        current_code = f.read()
+                except:
+                    pass
+            
             success = apply_change(change)
             
             if success:
+                if current_code and change.action in ['reemplazar', 'insertar']:
+                    save_applied_code(self.project_path, rel_path, current_code)
+                
                 widget_data['accepted'] = True
                 widget_data['card'].configure(fg_color="#1a3d1a")
                 self.remove_applied_block(index)
                 self.hide_applied_change(index)
                 self.update_status()
             else:
-                rel_path = os.path.relpath(change.file_path, self.project_path)
                 self.show_error(f"No se pudo aplicar el cambio #{index + 1}\n\nEl código que intentas reemplazar no existe en:\n{rel_path}\n\nLa IA puede haber generado código incorrecto o el archivo cambió.")
     
     def reject_change(self, index):
@@ -355,8 +375,22 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         for i in list(self.change_widgets.keys()):
             widget_data = self.change_widgets.get(i)
             if widget_data and not widget_data['accepted']:
-                success = apply_change(widget_data['change'])
+                change = widget_data['change']
+                rel_path = os.path.relpath(change.file_path, self.project_path)
+                
+                current_code = ""
+                if os.path.exists(change.file_path):
+                    try:
+                        with open(change.file_path, 'r', encoding='utf-8') as f:
+                            current_code = f.read()
+                    except:
+                        pass
+                
+                success = apply_change(change)
                 if success:
+                    if current_code and change.action in ['reemplazar', 'insertar']:
+                        save_applied_code(self.project_path, rel_path, current_code)
+                    
                     widget_data['accepted'] = True
                     widget_data['card'].configure(fg_color="#1a3d1a")
                     accepted_count += 1
@@ -428,3 +462,544 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         
         ctk.CTkLabel(info_win, text=f"ℹ️ {message}").pack(expand=True)
         ctk.CTkButton(info_win, text="Aceptar", command=info_win.destroy).pack(pady=5)
+    
+    def show_version_control(self):
+        VersionControlWindow(self, self.project_path)
+
+
+class VersionControlWindow(ctk.CTkToplevel):
+    def __init__(self, parent, project_path: str):
+        super().__init__(parent)
+        
+        self.title("Control de Versiones")
+        self.geometry("1000x700")
+        
+        self.transient(parent)
+        self.project_path = project_path
+        
+        self.selected_file = None
+        self.current_version_index = 0
+        self.file_versions = []
+        
+        self.setup_ui()
+        self.load_data()
+    
+    def setup_ui(self):
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=2)
+        self.grid_rowconfigure(1, weight=1)
+        
+        header = ctk.CTkFrame(self)
+        header.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=10)
+        
+        ctk.CTkLabel(
+            header,
+            text="📊 Control de Versiones",
+            font=ctk.CTkFont(size=18, weight="bold")
+        ).pack(side="left", padx=10)
+        
+        ctk.CTkButton(
+            header,
+            text="📤 Hacer Commit",
+            command=self.show_commit_dialog,
+            fg_color="#6f42c1",
+            width=120
+        ).pack(side="right", padx=10)
+        
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(
+            "TPanedwindow",
+            background="#2B2B2B",
+            sashthickness=6,
+            sashpad=2,
+            borderwidth=0
+        )
+        
+        paned = ttk.PanedWindow(self, orient="horizontal", style="TPanedwindow")
+        paned.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+        
+        left_panel = ctk.CTkFrame(paned, corner_radius=0)
+        paned.add(left_panel, weight=0)
+        
+        left_panel.grid_rowconfigure(3, weight=1)
+        
+        commit_section = ctk.CTkFrame(left_panel)
+        commit_section.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="ew")
+        commit_section.grid_columnconfigure(0, weight=1)
+        
+        ctk.CTkLabel(
+            commit_section,
+            text="📜 ÚLTIMO COMMIT",
+            font=ctk.CTkFont(size=12, weight="bold")
+        ).grid(row=0, column=0, sticky="w", pady=(0, 5))
+        
+        self.commit_info_label = ctk.CTkLabel(
+            commit_section,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color="gray",
+            anchor="w",
+            justify="left"
+        )
+        self.commit_info_label.grid(row=1, column=0, sticky="w", pady=(0, 5))
+        
+        self.btn_revert_commit = ctk.CTkButton(
+            commit_section,
+            text="↩️ Revertir Commit",
+            command=self.revert_last_commit,
+            fg_color="red",
+            width=140,
+            height=30
+        )
+        self.btn_revert_commit.grid(row=2, column=0, sticky="w", pady=(0, 5))
+        
+        files_section = ctk.CTkFrame(left_panel)
+        files_section.grid(row=2, column=0, padx=5, pady=(10, 5), sticky="ew")
+        files_section.grid_columnconfigure(0, weight=1)
+        
+        ctk.CTkLabel(
+            files_section,
+            text="📄 ARCHIVOS CON CAMBIOS",
+            font=ctk.CTkFont(size=14, weight="bold")
+        ).grid(row=0, column=0, sticky="w", pady=(0, 5))
+        
+        self.files_list = ctk.CTkScrollableFrame(left_panel, width=300, height=400)
+        self.files_list.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
+        
+        self.status_label = ctk.CTkLabel(
+            left_panel,
+            text="",
+            font=ctk.CTkFont(size=10),
+            text_color="gray"
+        )
+        self.status_label.grid(row=4, column=0, padx=10, pady=10, sticky="w")
+        
+        right_panel = ctk.CTkFrame(paned, corner_radius=0)
+        paned.add(right_panel, weight=2)
+        
+        right_panel.grid_rowconfigure(1, weight=1)
+        
+        self.diff_header_label = ctk.CTkLabel(
+            right_panel,
+            text="📄 Diff (selecciona un archivo)",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.diff_header_label.pack(pady=(10, 5), padx=10)
+        
+        diff_container = ctk.CTkFrame(right_panel)
+        diff_container.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        diff_container.grid_columnconfigure(0, weight=1)
+        diff_container.grid_columnconfigure(1, weight=1)
+        
+        ctk.CTkLabel(
+            diff_container,
+            text="Original (Último Commit)",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#ff6b6b"
+        ).grid(row=0, column=0, pady=(0, 5))
+        
+        ctk.CTkLabel(
+            diff_container,
+            text="Nuevo (Aplicado)",
+            font=ctk.CTkFont(size=11, weight="bold"),
+            text_color="#51cf66"
+        ).grid(row=0, column=1, pady=(0, 5))
+        
+        self.original_text = scrolledtext.ScrolledText(
+            diff_container,
+            font=("Consolas", 10),
+            bg="#1E1E1E",
+            fg="white",
+            wrap="none"
+        )
+        self.original_text.grid(row=1, column=0, sticky="nsew", padx=(0, 2))
+        
+        self.new_text = scrolledtext.ScrolledText(
+            diff_container,
+            font=("Consolas", 10),
+            bg="#1E1E1E",
+            fg="white",
+            wrap="none"
+        )
+        self.new_text.grid(row=1, column=1, sticky="nsew", padx=(2, 0))
+    
+    def load_data(self):
+        history = get_history(self.project_path, limit=1)
+        
+        if history:
+            commit = history[0]
+            self.commit_info_label.configure(
+                text=f"🔹 {commit['short_hash']}\n📅 {commit['author_date']}\n{commit['message']}"
+            )
+        else:
+            self.commit_info_label.configure(
+                text="No hay commits aún"
+            )
+        
+        files_with_history = get_files_with_history(self.project_path)
+        uncommitted_files = get_uncommitted_files(self.project_path)
+        
+        all_files = list(set(files_with_history + uncommitted_files))
+        all_files.sort()
+        
+        for widget in self.files_list.winfo_children():
+            widget.destroy()
+        
+        if not all_files:
+            ctk.CTkLabel(
+                self.files_list,
+                text="No hay archivos con cambios",
+                text_color="gray"
+            ).pack(pady=20)
+            self.status_label.configure(text="")
+            return
+        
+        total = len(all_files)
+        self.status_label.configure(text=f"Estado: {total} cambio(s) sin commit")
+        
+        for filename in all_files:
+            self.create_file_card(filename)
+    
+    def create_file_card(self, filename: str):
+        versions = get_apply_history(self.project_path, filename)
+        version_count = len(versions)
+        
+        uncommitted = get_uncommitted_files(self.project_path)
+        is_uncommitted = filename in uncommitted
+        
+        history = get_history(self.project_path, limit=1)
+        if history:
+            last_commit_code = get_file_at_commit(self.project_path, "HEAD", filename)
+            current_code = get_current_file_content(self.project_path, filename)
+            
+            has_diff_from_commit = last_commit_code != current_code
+        else:
+            has_diff_from_commit = True
+        
+        if version_count > 0:
+            status_color = "orange"
+        elif is_uncommitted:
+            status_color = "red"
+        else:
+            status_color = "green"
+        
+        card = ctk.CTkFrame(self.files_list, width=500)
+        card.pack(fill="x", pady=3, padx=2)
+        card.grid_columnconfigure(0, weight=0)
+        card.grid_columnconfigure(1, weight=1)
+        card.grid_columnconfigure(2, weight=0)
+        card.grid_columnconfigure(3, weight=0)
+        
+        nav_frame = ctk.CTkFrame(card, fg_color="transparent")
+        nav_frame.grid(row=0, column=0, padx=(5, 10), sticky="w")
+        
+        btn_prev = ctk.CTkButton(
+            nav_frame,
+            text="◀",
+            command=lambda: self.navigate_version(filename, -1),
+            width=30,
+            height=28
+        )
+        btn_prev.pack(side="left")
+        
+        if version_count == 0:
+            btn_prev.configure(state="disabled")
+        
+        ctk.CTkLabel(
+            card,
+            text=filename,
+            font=ctk.CTkFont(size=12),
+            anchor="w"
+        ).grid(row=0, column=1, padx=10, sticky="ew")
+        
+        btn_next = ctk.CTkButton(
+            nav_frame,
+            text="▶",
+            command=lambda: self.navigate_version(filename, 1),
+            width=30,
+            height=28
+        )
+        btn_next.pack(side="left")
+        
+        if version_count == 0:
+            btn_next.configure(state="disabled")
+        
+        btn_frame = ctk.CTkFrame(card, fg_color="transparent")
+        btn_frame.grid(row=0, column=2, columnspan=2, padx=(10, 10), sticky="e")
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="📄 Ver",
+            command=lambda: self.show_file_diff(filename),
+            width=70,
+            height=28
+        ).pack(side="left", padx=2)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="↩️",
+            command=lambda: self.revert_to_commit(filename),
+            fg_color="#d63031",
+            width=40,
+            height=28
+        ).pack(side="left", padx=2)
+    
+    def navigate_version(self, filename: str, direction: int):
+        versions = get_apply_history(self.project_path, filename)
+        
+        if direction == -1:
+            if versions:
+                self.current_version_index = len(versions)
+            else:
+                self.current_version_index = 0
+        else:
+            self.current_version_index = 0
+        
+        self.show_file_diff(filename)
+        self.load_data()
+    
+    def show_file_diff(self, filename: str):
+        self.selected_file = filename
+        
+        versions = get_apply_history(self.project_path, filename)
+        version_count = len(versions)
+        
+        last_commit_code = get_file_at_commit(self.project_path, "HEAD", filename)
+        current_code = get_current_file_content(self.project_path, filename)
+        
+        if not last_commit_code:
+            last_commit_code = "(Archivo no existe en el último commit)"
+        
+        applied_code = current_code
+        if version_count > 0 and self.current_version_index > 0:
+            idx = self.current_version_index - 1
+            if idx < len(versions):
+                applied_code = versions[idx]['code']
+        
+        if version_count > 0:
+            self.diff_header_label.configure(text=f"📄 {filename} (Aplicado sin commit - {version_count})")
+        else:
+            last_commit_code_check = get_file_at_commit(self.project_path, "HEAD", filename)
+            if last_commit_code_check and last_commit_code_check != current_code:
+                self.diff_header_label.configure(text=f"📄 {filename} (Modificado sin commit)")
+            elif not last_commit_code_check:
+                self.diff_header_label.configure(text=f"📄 {filename} (Nuevo archivo)")
+            else:
+                self.diff_header_label.configure(text=f"📄 {filename} (Sincronizado)")
+        
+        self.original_text.delete("1.0", "end")
+        self.original_text.insert("1.0", last_commit_code)
+        self.original_text.configure(state="disabled")
+        
+        self.new_text.delete("1.0", "end")
+        self.new_text.insert("1.0", applied_code)
+        self.new_text.configure(state="disabled")
+    
+    def revert_to_commit(self, filename: str):
+        history = get_history(self.project_path, limit=1)
+        
+        if not history:
+            self.show_error("No hay commits para revertir")
+            return
+        
+        commit = history[0]
+        
+        confirm = ctk.CTkToplevel(self)
+        confirm.transient(self)
+        confirm.attributes("-topmost", True)
+        confirm.title("Confirmar Restauración")
+        confirm.geometry("400x180")
+        
+        ctk.CTkLabel(
+            confirm,
+            text=f"¿Revertir {filename} al último commit?\n\n🔹 {commit['short_hash']}\n{commit['message']}\n\n⚠️ Esto sobrescribirá los cambios actuales",
+            font=ctk.CTkFont(size=12),
+            wraplength=350
+        ).pack(pady=20)
+        
+        btn_frame = ctk.CTkFrame(confirm, fg_color="transparent")
+        btn_frame.pack(pady=10)
+        
+        def do_revert():
+            success, result = revert_file(self.project_path, filename, commit['hash'])
+            
+            if success:
+                clear_apply_history(self.project_path, filename)
+                confirm.destroy()
+                self.load_data()
+                self.original_text.delete("1.0", "end")
+                self.original_text.insert("1.0", "(Archivo revertido)")
+                self.original_text.configure(state="disabled")
+                self.new_text.delete("1.0", "end")
+                self.new_text.insert("1.0", "(Archivo revertido)")
+                self.new_text.configure(state="disabled")
+                self.show_success(result)
+            else:
+                self.show_error(f"Error al revertir:\n{result}")
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="✅ Sí, Revertir",
+            command=do_revert,
+            fg_color="red",
+            width=120
+        ).pack(side="left", padx=10)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="❌ Cancelar",
+            command=confirm.destroy,
+            width=100
+        ).pack(side="left", padx=10)
+    
+    def show_commit_dialog(self):
+        status = get_status(self.project_path)
+        has_changes = status["staged"] or status["modified"] or status["untracked"]
+        
+        if not has_changes:
+            self.show_error("No hay cambios para hacer commit")
+            return
+        
+        dialog = ctk.CTkToplevel(self)
+        dialog.transient(self)
+        dialog.attributes("-topmost", True)
+        dialog.title("Hacer Commit")
+        dialog.geometry("500x250")
+        
+        ctk.CTkLabel(
+            dialog,
+            text="📤 Mensaje de Commit:",
+            font=ctk.CTkFont(size=14, weight="bold")
+        ).pack(pady=(20, 10))
+        
+        commit_msg = ctk.CTkTextbox(dialog, height=80)
+        commit_msg.pack(pady=10, padx=20, fill="x")
+        commit_msg.insert("1.0", get_default_commit_message())
+        
+        btn_frame = ctk.CTkFrame(dialog, fg_color="transparent")
+        btn_frame.pack(pady=20)
+        
+        def do_commit():
+            msg = commit_msg.get("1.0", "end-1c").strip()
+            if not msg:
+                self.show_error("El mensaje no puede estar vacío")
+                return
+            
+            success, result = commit(self.project_path, msg)
+            
+            if success:
+                clear_all_apply_history(self.project_path)
+                dialog.destroy()
+                self.load_data()
+                self.show_success(result)
+            else:
+                self.show_error(result)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="✅ Confirmar Commit",
+            command=do_commit,
+            fg_color="green",
+            width=150
+        ).pack(side="left", padx=10)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="❌ Cancelar",
+            command=dialog.destroy,
+            width=100
+        ).pack(side="left", padx=10)
+    
+    def revert_last_commit(self):
+        history = get_history(self.project_path, limit=1)
+        
+        if not history:
+            self.show_error("No hay commits para revertir")
+            return
+        
+        commit = history[0]
+        
+        confirm = ctk.CTkToplevel(self)
+        confirm.transient(self)
+        confirm.attributes("-topmost", True)
+        confirm.title("Descartar Cambios")
+        confirm.geometry("450x180")
+        
+        ctk.CTkLabel(
+            confirm,
+            text=f"¿Descartar todos los cambios locales?\n\n🔹 Último commit: {commit['short_hash']}\n{commit['message']}\n\n⚠️ Se perderán todos los cambios sin commit",
+            font=ctk.CTkFont(size=12),
+            wraplength=400
+        ).pack(pady=20)
+        
+        btn_frame = ctk.CTkFrame(confirm, fg_color="transparent")
+        btn_frame.pack(pady=10)
+        
+        def do_revert():
+            success, msg = discard_all_changes(self.project_path)
+            
+            if success:
+                git_status = get_status(self.project_path)
+                untracked = git_status.get("untracked", [])
+                
+                for filepath in untracked:
+                    full_path = os.path.join(self.project_path, filepath)
+                    if os.path.isfile(full_path):
+                        try:
+                            os.remove(full_path)
+                        except Exception:
+                            pass
+                
+                clear_all_apply_history(self.project_path)
+                confirm.destroy()
+                self.load_data()
+                self.show_success("Todos los cambios locales han sido descartados")
+            else:
+                self.show_error(f"Error al descartar cambios:\n{msg}")
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="✅ Sí, Descartar Todo",
+            command=do_revert,
+            fg_color="red",
+            width=140
+        ).pack(side="left", padx=10)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="❌ Cancelar",
+            command=confirm.destroy,
+            width=100
+        ).pack(side="left", padx=10)
+    
+    def show_error(self, message):
+        error_win = ctk.CTkToplevel(self)
+        error_win.transient(self)
+        error_win.attributes("-topmost", True)
+        error_win.title("Error")
+        error_win.geometry("400x150")
+        
+        ctk.CTkLabel(
+            error_win,
+            text=f"❌ {message}",
+            font=ctk.CTkFont(size=14)
+        ).pack(expand=True)
+        
+        ctk.CTkButton(error_win, text="Aceptar", command=error_win.destroy).pack(pady=10)
+    
+    def show_success(self, message):
+        success_win = ctk.CTkToplevel(self)
+        success_win.transient(self)
+        success_win.attributes("-topmost", True)
+        success_win.title("Éxito")
+        success_win.geometry("300x100")
+        
+        ctk.CTkLabel(
+            success_win,
+            text=f"✅ {message}",
+            font=ctk.CTkFont(size=14)
+        ).pack(expand=True)
+        
+        ctk.CTkButton(success_win, text="Aceptar", command=success_win.destroy).pack(pady=10)

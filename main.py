@@ -224,6 +224,40 @@ class AICodeEditor(ctk.CTk):
             
             self.btn_generate.configure(state="normal")
             self.btn_apply.configure(state="normal")
+            
+            from utils.git_manager import init_git
+            success, msg = init_git(self.project_path)
+            print(f"Git: {msg}")
+            
+            gitignore_path = os.path.join(self.project_path, ".gitignore")
+            
+            lines_to_add = [
+                "# Instrucciones para la IA",
+                "*_instructions_*.txt",
+                "*_instrucciones_*.txt",
+                "",
+                "# Carpeta de cambios de la app",
+                "_changes/"
+            ]
+            
+            if not os.path.exists(gitignore_path):
+                with open(gitignore_path, 'w', encoding='utf-8') as f:
+                    f.write("\n".join(lines_to_add))
+                print("Gitignore creado")
+            else:
+                with open(gitignore_path, 'r', encoding='utf-8') as f:
+                    existing_content = f.read()
+                
+                needs_update = False
+                for line in lines_to_add:
+                    if line and line not in existing_content:
+                        existing_content += "\n" + line
+                        needs_update = True
+                
+                if needs_update:
+                    with open(gitignore_path, 'w', encoding='utf-8') as f:
+                        f.write(existing_content)
+                    print("Gitignore actualizado")
     
     def manage_changes(self):
         if not self.project_path:
@@ -270,7 +304,7 @@ class AICodeEditor(ctk.CTk):
         for item in items:
             if item.startswith('.'):
                 continue
-            if '_instrucciones_' in item:
+            if '_instrucciones_' in item or '_instructions_' in item:
                 continue
             if item == '_changes':
                 continue

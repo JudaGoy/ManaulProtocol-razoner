@@ -259,6 +259,7 @@ DO NOT generate XML changes until the user indicates which suggestions they want
 - ❌ DO NOT modify unspecified files
 - ❌ DO NOT assume function/variable names that don't exist
 - ❌ DO NOT rewrite entire files (only use the necessary parts)
+- ❌ DO NOT create unnecessarily large change blocks if not strictly necessary - make only the minimal changes required
 
 ================================================================================
                            🔍 HOW TO VERIFY BEFORE RESPONDING
@@ -436,6 +437,7 @@ Analyze existing code, understand the structure, and provide:
 - ❌ DO NOT write full functional code
 - ❌ DO NOT generate changes with <CAMBIOS> format
 - ❌ DO NOT rewrite entire functions
+- ❌ DO NOT create unnecessarily large change blocks if not strictly necessary
 - ❌ Only give small examples if necessary to explain
 
 ================================================================================
