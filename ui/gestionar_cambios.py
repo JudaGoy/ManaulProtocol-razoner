@@ -7,7 +7,7 @@ from typing import List, Dict, Optional
 
 from core.change_parser import Change, ChangeError, apply_change, get_file_diff, parse_xml_content, normalize_text
 from utils.git_manager import get_status, get_history, commit, restore, get_commit_diff, get_default_commit_message, get_commit_count, get_file_at_commit, get_current_file_content, revert_file, get_modified_files_since_commit, get_commit_files, get_uncommitted_files, discard_all_changes
-from utils.apply_history import save_applied_code, get_apply_history, clear_apply_history, get_files_with_history, clear_all_apply_history
+from utils.apply_history import save_change, get_apply_history, clear_apply_history, get_files_with_history, clear_all_apply_history, apply_change_with_history
 from utils.file_watcher import ProjectWatcher
 
 
@@ -322,33 +322,50 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             
             rel_path = os.path.relpath(change.file_path, self.project_path)
             
-            current_code = ""
-            if os.path.exists(change.file_path):
-                try:
-                    with open(change.file_path, 'r', encoding='utf-8') as f:
-                        current_code = f.read()
-                except:
-                    pass
-            
-            success = apply_change(change)
-            
-            self.watcher.ignorar = False
-            
-            if success:
-                if current_code and change.action in ['reemplazar', 'insertar']:
-                    save_applied_code(self.project_path, rel_path, current_code)
+            if change.action in ['crear_carpeta', 'crear', 'eliminar_archivo', 'eliminar_carpeta']:
+                original_code = get_file_at_commit(self.project_path, "HEAD", rel_path)
+                if not original_code:
+                    original_code = ""
                 
-                if change.action in ['crear', 'crear_carpeta']:
-                    if hasattr(self.main_window, 'refresh_tree'):
-                        self.main_window.refresh_tree(select_new=True)
+                success = apply_change(change)
                 
-                widget_data['accepted'] = True
-                widget_data['card'].configure(fg_color="#1a3d1a")
-                self.remove_applied_block(index)
-                self.hide_applied_change(index)
-                self.update_status()
+                self.watcher.ignorar = False
+                
+                if success:
+                    if change.action == 'crear':
+                        save_change(self.project_path, rel_path, "", change.new_code)
+                    elif change.action == 'eliminar':
+                        save_change(self.project_path, rel_path, original_code, "")
+                    
+                    if change.action in ['crear', 'crear_carpeta']:
+                        if hasattr(self.main_window, 'refresh_tree'):
+                            self.main_window.refresh_tree(select_new=True)
+                    
+                    widget_data['accepted'] = True
+                    widget_data['card'].configure(fg_color="#1a3d1a")
+                    self.remove_applied_block(index)
+                    self.hide_applied_change(index)
+                    self.update_status()
+                else:
+                    self.show_error(f"No se pudo aplicar el cambio #{index + 1}\n\nLa IA puede haber generado código incorrecto o el archivo cambió.")
             else:
-                self.show_error(f"No se pudo aplicar el cambio #{index + 1}\n\nEl código que intentas reemplazar no existe en:\n{rel_path}\n\nLa IA puede haber generado código incorrecto o el archivo cambió.")
+                original_code = get_file_at_commit(self.project_path, "HEAD", rel_path)
+                success, error_msg = apply_change_with_history(self.project_path, change, original_code)
+                
+                self.watcher.ignorar = False
+                
+                if success:
+                    if change.action in ['crear', 'crear_carpeta']:
+                        if hasattr(self.main_window, 'refresh_tree'):
+                            self.main_window.refresh_tree(select_new=True)
+                    
+                    widget_data['accepted'] = True
+                    widget_data['card'].configure(fg_color="#1a3d1a")
+                    self.remove_applied_block(index)
+                    self.hide_applied_change(index)
+                    self.update_status()
+                else:
+                    self.show_error(f"No se pudo aplicar el cambio #{index + 1}\n\n{error_msg}\n\nLa IA puede haber generado código incorrecto o el archivo cambió.")
     
     def reject_change(self, index):
         widget_data = self.change_widgets.get(index)
@@ -404,30 +421,44 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
                 change = widget_data['change']
                 rel_path = os.path.relpath(change.file_path, self.project_path)
                 
-                current_code = ""
-                if os.path.exists(change.file_path):
-                    try:
-                        with open(change.file_path, 'r', encoding='utf-8') as f:
-                            current_code = f.read()
-                    except:
-                        pass
-                
-                success = apply_change(change)
-                if success:
-                    if current_code and change.action in ['reemplazar', 'insertar']:
-                        save_applied_code(self.project_path, rel_path, current_code)
+                if change.action in ['crear_carpeta', 'crear', 'eliminar_archivo', 'eliminar_carpeta']:
+                    original_code = get_file_at_commit(self.project_path, "HEAD", rel_path)
+                    if not original_code:
+                        original_code = ""
                     
-                    if change.action in ['crear', 'crear_carpeta']:
-                        if not hasattr(self, '_tree_refreshed'):
-                            self._tree_refreshed = True
-                            if hasattr(self.main_window, 'refresh_tree'):
-                                self.main_window.refresh_tree(select_new=True)
-                    
-                    widget_data['accepted'] = True
-                    widget_data['card'].configure(fg_color="#1a3d1a")
-                    accepted_count += 1
-                    self.remove_applied_block(i)
-                    indices_to_hide.append(i)
+                    success = apply_change(change)
+                    if success:
+                        if change.action == 'crear':
+                            save_change(self.project_path, rel_path, "", change.new_code)
+                        elif change.action == 'eliminar':
+                            save_change(self.project_path, rel_path, original_code, "")
+                        
+                        if change.action in ['crear', 'crear_carpeta']:
+                            if not hasattr(self, '_tree_refreshed'):
+                                self._tree_refreshed = True
+                                if hasattr(self.main_window, 'refresh_tree'):
+                                    self.main_window.refresh_tree(select_new=True)
+                        
+                        widget_data['accepted'] = True
+                        widget_data['card'].configure(fg_color="#1a3d1a")
+                        accepted_count += 1
+                        self.remove_applied_block(i)
+                        indices_to_hide.append(i)
+                else:
+                    original_code = get_file_at_commit(self.project_path, "HEAD", rel_path)
+                    success, error_msg = apply_change_with_history(self.project_path, change, original_code)
+                    if success:
+                        if change.action in ['crear', 'crear_carpeta']:
+                            if not hasattr(self, '_tree_refreshed'):
+                                self._tree_refreshed = True
+                                if hasattr(self.main_window, 'refresh_tree'):
+                                    self.main_window.refresh_tree(select_new=True)
+                        
+                        widget_data['accepted'] = True
+                        widget_data['card'].configure(fg_color="#1a3d1a")
+                        accepted_count += 1
+                        self.remove_applied_block(i)
+                        indices_to_hide.append(i)
         
         self.watcher.ignorar = False
         

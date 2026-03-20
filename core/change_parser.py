@@ -3,18 +3,14 @@ import re
 import html
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from typing import List, Optional
 
 
 def normalize_text(text: str) -> str:
-    """Normaliza el texto para corregir problemas de codificación."""
-    
     text = html.unescape(text)
     
     replacements = {
         '├│': '│',
         '├': '',
-        '│': '│',
         'Â': '',
         'â€™': "'",
         'â€œ': '"',
@@ -32,11 +28,6 @@ def normalize_text(text: str) -> str:
         'Ã­': 'í',
         'Ã³': 'ó',
         'Ãº': 'ú',
-        'â†': '→',
-        'â†': '←',
-        'â†': '↑',
-        'â†': '↓',
-        'â†': '→',
     }
     
     for wrong, correct in replacements.items():
@@ -102,99 +93,63 @@ def parse_xml_content(content, project_path):
     changes = []
     errors = []
     
-    import re
+    print(f"\n[DEBUG] Contenido length (antes): {len(content)} chars")
+    print(f"[DEBUG] Tiene system-reminder: {'<system-reminder>' in content}")
     
-    # Buscar bloques usando una estrategia más robusta
-    # Encontrar todas las posiciones de <CAMBIOS> y </CAMBIOS>
-    start_positions = [m.start() for m in re.finditer(r'<CAMBIOS>', content)]
-    end_positions = [m.end() for m in re.finditer(r'</CAMBIOS>', content)]
+    content = re.sub(r'<system-reminder>.*?</system-reminder>', '', content, flags=re.DOTALL | re.IGNORECASE)
+    content = re.sub(r'<system-.*?>.*?</system-.*?>', '', content, flags=re.DOTALL)
     
-    # Emparejar starts con ends
-    blocks = []
-    for start in start_positions:
-        # Encontrar el </CAMBIOS> más cercano después de este start
-        for end in end_positions:
-            if end > start:
-                blocks.append(content[start:end])
-                break
+    print(f"[DEBUG] Contenido length (despues): {len(content)} chars")
+    print(f"[DEBUG] Todavia tiene system-reminder: {'<system-reminder>' in content}")
     
-    for block in blocks:
-        try:
-            # Extraer ARCHIVO
-            archivo_match = re.search(r'<ARCHIVO>([^<]+)</ARCHIVO>', block)
-            if not archivo_match:
-                continue
-            
-            # Extraer ACCION
-            accion_match = re.search(r'<ACCION>([^<]+)</ACCION>', block)
-            
-            # Extraer CODIGO_ANTIGUO
-            old_code = ""
-            old_start = block.find('<CODIGO_ANTIGUO>')
-            if old_start != -1:
-                old_start += len('<CODIGO_ANTIGUO>')
-                old_end = block.find('</CODIGO_ANTIGUO>', old_start)
-                if old_end != -1:
-                    old_code = block[old_start:old_end]
-            
-            # Extraer CODIGO_NUEVO
-            new_code = ""
-            new_start = block.find('<CODIGO_NUEVO>')
-            if new_start != -1:
-                new_start += len('<CODIGO_NUEVO>')
-                new_end = block.find('</CODIGO_NUEVO>', new_start)
-                if new_end != -1:
-                    new_code = block[new_start:new_end]
-            
-            archivo = archivo_match.group(1).strip()
-            accion = accion_match.group(1).strip().lower() if accion_match else ''
-            
-            if archivo:
-                abs_path = os.path.join(project_path, archivo)
-                
-                change = Change(
-                    file_path=abs_path,
-                    action=accion,
-                    old_code=old_code.strip(),
-                    new_code=new_code.strip(),
-                    raw_xml=block
-                )
-                
-                changes.append(change)
-                
-        except Exception as e:
-            errors.append(ChangeError(
-                error_type="desconocido",
-                message="Error al parsear bloque",
-                file_path="",
-                detail=str(e)
-            ))
+    block_pattern = re.compile(r'<CAMBIOS>(.*?)</CAMBIOS>', re.DOTALL)
+    blocks = block_pattern.findall(content)
     
-    error_blocks = content.split('</ERROR>')
+    print(f"[DEBUG] Bloques <CAMBIOS> encontrados: {len(blocks)}")
     
-    for block in error_blocks:
-        if '<ERROR>' not in block:
+    for i, block in enumerate(blocks):
+        print(f"[DEBUG] === BLOQUE #{i+1} ===")
+        
+        archivo_match = re.search(r'<ARCHIVO>\s*(.+?)\s*</ARCHIVO>', block, re.DOTALL)
+        if not archivo_match:
             continue
         
-        block = block + '</ERROR>'
+        accion_match = re.search(r'<ACCION>\s*(.+?)\s*</ACCION>', block, re.DOTALL)
+        old_match = re.search(r'<CODIGO_ANTIGUO>\s*(.*?)\s*</CODIGO_ANTIGUO>', block, re.DOTALL)
+        new_match = re.search(r'<CODIGO_NUEVO>\s*(.*?)\s*</CODIGO_NUEVO>', block, re.DOTALL)
         
-        try:
-            root = ET.fromstring(block.strip())
+        if not old_match or not new_match:
+            print(f"[DEBUG] ERROR: No se encontro CODIGO_ANTIGUO o CODIGO_NUEVO")
+            continue
+        
+        old_code = old_match.group(1)
+        new_code = new_match.group(1)
+        archivo = archivo_match.group(1).strip()
+        accion = accion_match.group(1).strip().lower() if accion_match else ''
+        
+        print(f"[DEBUG] old_code RAW (primeros 200 chars):")
+        print(repr(old_code[:200]))
+        print(f"[DEBUG] old_code RAW length: {len(old_code)}")
+        print(f"[DEBUG] old_code.strip() (primeros 200 chars):")
+        print(repr(old_code.strip()[:200]))
+        
+        if archivo:
+            abs_path = os.path.join(project_path, archivo)
+            normalized_old = normalize_text(old_code.strip())
+            normalized_new = normalize_text(new_code.strip())
             
-            error_type = root.findtext('TIPO', '').strip()
-            message = root.findtext('MENSAJE', '').strip()
-            file_path = root.findtext('ARCHIVO', '').strip()
-            detail = root.findtext('DETALLE', '').strip()
+            print(f"[DEBUG] archivo: {archivo}")
+            print(f"[DEBUG] accion: {accion}")
+            print(f"[DEBUG] old_code length: {len(normalized_old)}")
+            print(f"[DEBUG] new_code length: {len(normalized_new)}")
             
-            errors.append(ChangeError(
-                error_type=error_type,
-                message=message,
-                file_path=file_path,
-                detail=detail
+            changes.append(Change(
+                file_path=abs_path,
+                action=accion,
+                old_code=normalized_old,
+                new_code=normalized_new,
+                raw_xml=f"<CAMBIOS>{block}</CAMBIOS>"
             ))
-            
-        except ET.ParseError:
-            pass
     
     return changes, errors
 
@@ -202,7 +157,6 @@ def parse_xml_content(content, project_path):
 def get_original_code(change: Change) -> str:
     if not os.path.exists(change.file_path):
         return ""
-    
     try:
         with open(change.file_path, 'r', encoding='utf-8') as f:
             return f.read()
@@ -211,6 +165,10 @@ def get_original_code(change: Change) -> str:
 
 
 def apply_change(change: Change) -> bool:
+    print(f"\n[DEBUG apply_change] ===")
+    print(f"[DEBUG] archivo: {change.file_path}")
+    print(f"[DEBUG] action: {change.action}")
+    
     try:
         if change.action == 'crear_carpeta':
             os.makedirs(change.file_path, exist_ok=True)
@@ -244,20 +202,15 @@ def apply_change(change: Change) -> bool:
         if change.action == 'insertar':
             if not os.path.exists(change.file_path):
                 return False
-            
             with open(change.file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
-            
             old_code_stripped = change.old_code.strip()
-            
             if old_code_stripped and old_code_stripped in content:
                 new_content = content.replace(old_code_stripped, old_code_stripped + "\n" + change.new_code, 1)
-                if new_content != content:
-                    with open(change.file_path, 'w', encoding='utf-8') as f:
-                        f.write(new_content)
-                    change.applied = True
-                    return True
-            
+                with open(change.file_path, 'w', encoding='utf-8') as f:
+                    f.write(new_content)
+                change.applied = True
+                return True
             return False
         
         if not os.path.exists(change.file_path):
@@ -267,37 +220,65 @@ def apply_change(change: Change) -> bool:
             content = f.read()
         
         old_code_stripped = change.old_code.strip()
-        content_stripped = content.strip()
         
         if not old_code_stripped:
+            print(f"[DEBUG ERROR] old_code está vacío después de strip()")
             return False
         
-        if old_code_stripped in content_stripped:
-            new_content = content.replace(change.old_code, change.new_code, 1)
-            if new_content == content:
-                new_content = content.replace(change.old_code.strip(), change.new_code, 1)
-        else:
-            return False
+        print(f"[DEBUG] old_code length: {len(old_code_stripped)}")
+        print(f"[DEBUG] content length: {len(content)}")
+        print(f"[DEBUG] old_code (primeros 200 chars):")
+        print(repr(old_code_stripped[:200]))
+        print(f"[DEBUG] old_code count newlines: {old_code_stripped.count(chr(10))}")
         
-        with open(change.file_path, 'w', encoding='utf-8') as f:
-            f.write(new_content)
+        if old_code_stripped in content:
+            new_content = content.replace(old_code_stripped, change.new_code, 1)
+            with open(change.file_path, 'w', encoding='utf-8') as f:
+                f.write(new_content)
+            change.applied = True
+            print(f"[DEBUG] ✓ Cambio aplicado exitosamente")
+            return True
         
-        change.applied = True
-        return True
+        # ===== DEBUG: Diagnóstico de por qué NO coincidió =====
+        print(f"[DEBUG] === ERROR: Código no encontrado en archivo ===")
+        
+        # Buscar primera línea del código
+        first_line = old_code_stripped.split('\n')[0][:50] if '\n' in old_code_stripped else old_code_stripped[:50]
+        print(f"[DEBUG] Primera línea buscada: {repr(first_line)}")
+        print(f"[DEBUG] Primera línea ENCONTRADA en archivo: {first_line in content}")
+        
+        # Buscar variaciones comunes
+        first_line_stripped = first_line.strip()
+        print(f"[DEBUG] Primera línea sin espacios: {repr(first_line_stripped)}")
+        print(f"[DEBUG] Primera línea sin espacios ENCONTRADA: {first_line_stripped in content}")
+        
+        # Mostrar contexto del archivo donde debería estar
+        if first_line_stripped and first_line_stripped in content:
+            idx = content.find(first_line_stripped)
+            print(f"[DEBUG] Contexto en archivo (50 chars antes y después):")
+            print(repr(content[max(0,idx-50):idx+150]))
+            print(f"[DEBUG] Línea con indentación real:")
+            lines_before = content[:idx].count('\n')
+            line_start = content.rfind('\n', 0, idx) + 1
+            line_end = content.find('\n', idx)
+            actual_line = content[line_start:line_end if line_end != -1 else len(content)]
+            print(f"[DEBUG] Línea real #{lines_before + 1}: {repr(actual_line[:80])}")
+        
+        return False
         
     except Exception as e:
-        print(f"DEBUG exception: {e}")
+        print(f"[DEBUG ERROR] Excepción: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
 def revert_change(change: Change, original_content: str) -> bool:
     if not os.path.exists(change.file_path):
         return False
-    
     try:
         with open(change.file_path, 'w', encoding='utf-8') as f:
             f.write(original_content)
-        
         change.applied = False
         return True
     except Exception:
@@ -305,29 +286,7 @@ def revert_change(change: Change, original_content: str) -> bool:
 
 
 def get_file_diff(change: Change) -> tuple:
-    try:
-        if change.action == 'crear_carpeta':
-            return [], [f"📁 Crear carpeta: {os.path.basename(change.file_path)}"]
-        
-        if change.action == 'crear':
-            return [], [f"📄 Crear archivo con contenido:", change.new_code]
-        
-        if change.action == 'eliminar_archivo':
-            if os.path.exists(change.file_path):
-                try:
-                    with open(change.file_path, 'r', encoding='utf-8') as f:
-                        return [f.read()], ["(archivo eliminado)"]
-                except:
-                    return ["(no se pudo leer)"], ["(archivo eliminado)"]
-            return [], ["(archivo ya no existe)"]
-        
-        if change.action == 'eliminar_carpeta':
-            return [], [f"🗑️ Eliminar carpeta: {os.path.basename(change.file_path)}"]
-        
-        old_lines = change.old_code.split('\n') if change.old_code else []
-        new_lines = change.new_code.split('\n') if change.new_code else []
-        
-        return old_lines, new_lines
-        
-    except Exception:
-        return [], []
+    """Retorna (old_lines, new_lines) para mostrar en el UI."""
+    old_lines = change.old_code.strip().split('\n') if change.old_code else []
+    new_lines = change.new_code.strip().split('\n') if change.new_code else []
+    return old_lines, new_lines

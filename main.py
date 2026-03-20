@@ -266,7 +266,7 @@ class AICodeEditor(ctk.CTk):
             if hasattr(self, 'watcher') and self.watcher:
                 self.watcher.detener()
             
-            self.watcher = ProjectWatcher(folder, self.on_new_item_created)
+            self.watcher = ProjectWatcher(folder, self.on_new_item_created, self.on_git_commit)
             self.watcher.iniciar()
     
     def manage_changes(self):
@@ -384,6 +384,22 @@ class AICodeEditor(ctk.CTk):
             
             first_item = self.file_tree_items[sorted(added_items)[0]]
             self.tree.see(first_item)
+    
+    def on_git_commit(self, files):
+        if not files:
+            return
+        
+        from utils.apply_history import clear_history_for_files
+        
+        full_paths = []
+        for filename in files:
+            full_path = os.path.join(self.project_path, filename)
+            if os.path.exists(full_path):
+                full_paths.append(full_path)
+        
+        if full_paths:
+            clear_history_for_files(self.project_path, full_paths)
+            print(f"Historial de cambios limpiado para {len(full_paths)} archivos en commit")
     
     def detener_watcher(self):
         if hasattr(self, 'watcher') and self.watcher:

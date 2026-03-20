@@ -188,6 +188,7 @@ def get_commit_count(project_path: str) -> int:
 
 
 def get_file_at_commit(project_path: str, commit_hash: str, filename: str) -> str:
+    filename = filename.replace("\\", "/")
     stdout, stderr, code = run_git_command(
         project_path,
         "show",
