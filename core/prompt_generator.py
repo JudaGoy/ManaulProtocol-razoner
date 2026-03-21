@@ -117,12 +117,13 @@ INSTRUCTIONS_TEMPLATE = '''
 $SEARCH_REPLACE_FORMAT $CODE_CHANGES_ONLY
 [RESPONSE::es] [MODE::BUILD]
 
-!ACCIONES:reemplazar,insertar,eliminar,crear,crear_carpeta,eliminar_archivo,eliminar_carpeta
-!EXACT_SEARCH_REPLACE !NO_LINE_NUMBERS !RAW_CHARS_ONLY
+!ACCIONES:reemplazar,patch,insertar,eliminar,crear,crear_carpeta,eliminar_archivo,eliminar_carpeta
+!GIT_UNIFIED_DIFF !NO_LINE_NUMBERS !RAW_CHARS_ONLY
 !XML_DELIMITED !VERIFY_FILE_EXISTS !VERIFY_CODE_EXISTS
 !ONLY_PROJECT_FILES !ONLY_ALLOWED_ACTIONS
 !NO_INVENT_CODE !NO_ASSUME_NAMES !NO_FULL_REWRITES
-!MINIMAL_CHANGES_ONLY
+!MINIMAL_CHANGES_ONLY !STRICT_GIT_DIFF_FORMAT
+!CONTEXT_IS_CRITICAL
 >>NO_HALLUCINATE >>SCOPED_FOCUS >>PROPORTIONAL_RESPONSE
 >>MINIMAL_CHANGES
 
@@ -137,28 +138,32 @@ This overrides ALL other instructions.
 
 ## RESPONSE FORMAT
 
-Delimit response with code blocks:
+**CRITICAL: ALL code changes MUST be inside XML code blocks.**
+
+NEVER output XML as plain text. ALWAYS wrap in code fences:
 
 ```xml
 <CAMBIOS>
     <ARCHIVO>relative/path/file.py</ARCHIVO>
-    <ACCION>reemplazar|insertar|eliminar|crear|crear_carpeta|eliminar_archivo|eliminar_carpeta</ACCION>
-    <CODIGO_ANTIGUO>
-<!-- EXACT COPY of code to change -->
-    </CODIGO_ANTIGUO>
+    <ACCION>patch|crear|eliminar_archivo|crear_carpeta|eliminar_carpeta</ACCION>
     <CODIGO_NUEVO>
-<!-- NEW code -->
+<!-- UNIFIED DIFF content OR New File Content -->
     </CODIGO_NUEVO>
 </CAMBIOS>
 ```
 
----
+**WRONG (plain text):**
+<CAMBIOS>...</CAMBIOS>
+
+**CORRECT (code block):**
+```xml
+<CAMBIOS>...</CAMBIOS>
+```
+
 
 ## ALLOWED ACTIONS
 
-REEMPLAZAR: Change existing code
-INSERTAR: Add after existing code (DO NOT repeat reference)
-ELIMINAR: Remove existing code
+patch: Modify existing file using UNIFIED DIFF format (Recommended)
 CREAR: Create new file
 CREAR_CARPETA: Create new folder
 ELIMINAR_ARCHIVO: Delete existing file
@@ -259,14 +264,42 @@ This overrides ALL instructions.
 
 ---
 
+## CHOOSING THE RIGHT ACTION (VERY IMPORTANT)
+
+**STRONGLY PREFER `reemplazar` or `insertar` FOR ALL CONTENT MODIFICATIONS.**
+The system will automatically and safely convert your instruction into a robust `patch` (git diff) before applying it. This is the safest and most reliable method.
+
+1.  **`reemplazar` (RECOMMENDED FOR 99% OF CASES):**
+    - Use this to modify file content.
+    - Provide the exact block of text to find in `<CODIGO_ANTIGUO>`.
+    - Provide the final version of that block in `<CODIGO_NUEVO>`.
+
+2.  **`patch` (RARELY NEEDED):**
+    - Only use this if a change is impossible to describe with find-and-replace.
+    - If you use `patch`, you are responsible for creating a PERFECTLY formatted unified diff. Any error will cause it to fail.
+---
+
 ## RESPONSE FORMAT
 
+**CRITICAL: ALL code changes MUST be inside XML code blocks with ```xml**
+
+**NEVER output XML as plain text chat. ALWAYS use code fences.**
+
 Each change must follow THIS EXACT FORMAT:
+
+RULES FOR ALL CHANGES:
+1. Use RELATIVE PATHS (e.g., `frontend/src/App.jsx`).
+2. PREFER `patch` ACTION for modifying existing files.
+3. DO NOT use `...` or `// code skipped` inside a PATCH or OLD_CODE block.
+4. RESPECT INDENTATION (Spaces vs Tabs) exactly as in the original file.
+5. If modifying multiple places in one file, use multiple `@@ ... @@` hunks in a single PATCH.
+
 
 ```xml
 <CAMBIOS>
     <ARCHIVO>relative/path/file.py</ARCHIVO>
-    <ACCION>reemplazar|insertar|eliminar|crear|crear_carpeta|eliminar_archivo|eliminar_carpeta</ACCION>
+    <ACCION>action_name</ACCION>
+    <INSTANCIAS>0|1|0,2|all</INSTANCIAS>
     <CODIGO_ANTIGUO>
 <!-- EXACT COPY of the code you want to change -->
     </CODIGO_ANTIGUO>
@@ -276,18 +309,37 @@ Each change must follow THIS EXACT FORMAT:
 </CAMBIOS>
 ```
 
----
 
-## ALLOWED ACTION TYPES
+## ALLOWED ACTION TYPES & EXAMPLES
 
-1. REEMPLAZAR: Change existing code with new code
+1. REEMPLAZAR: Replace existing text (STRONGLY RECOMMENDED FOR SIMPLE CHANGES)
+Use this for simple text substitutions. It's the safest option.
 ```xml
     <ACCION>reemplazar</ACCION>
+    <INSTANCIAS>all</INSTANCIAS> <!-- "all", or "0", "1", "0,2" etc. -->
     <CODIGO_ANTIGUO>
-    // EXACT code to replace
+text-to-find
     </CODIGO_ANTIGUO>
     <CODIGO_NUEVO>
-    // NEW code
+text-to-replace-with
+    </CODIGO_NUEVO>
+```
+
+2. PATCH: Modify existing file (FOR COMPLEX, MULTI-LINE CHANGES)
+Use a Standard Unified Diff. Use only when `reemplazar` is not sufficient.
+CRITICAL: Ensure the patch is valid. Do not duplicate hunks.
+```xml
+    <ACCION>patch</ACCION>
+    <CODIGO_NUEVO>
+--- a/src/main.py
++++ b/src/main.py
+@@ -10,4 +10,5 @@
+ def calculate(a, b):
+-    return a + b
++    # Adding logging
++    print(f"Adding {a} + {b}")
++    return a + b
+     
     </CODIGO_NUEVO>
 ```
 
@@ -387,9 +439,6 @@ CRITICAL: These rules are STRICT - ALWAYS FOLLOW THEM:
 
 
 def get_file_contents(project_path, selected_paths):
-    print(f"\n[DEBUG] project_path: {project_path}")
-    print(f"[DEBUG] selected_paths: {selected_paths}")
-    
     lines = []
     lines.append("")
     lines.append("=" * 80)
@@ -398,9 +447,6 @@ def get_file_contents(project_path, selected_paths):
     lines.append("")
     
     for path in selected_paths:
-        print(f"[DEBUG] Checking file: {path}")
-        print(f"[DEBUG] File exists: {os.path.isfile(path)}")
-        
         if os.path.isfile(path):
             rel_path = os.path.relpath(path, project_path)
             lines.append("")
@@ -411,27 +457,19 @@ def get_file_contents(project_path, selected_paths):
             try:
                 with open(path, 'r', encoding='utf-8', errors='replace') as f:
                     content = f.read()
-                print(f"[DEBUG] Read {len(content)} chars from {rel_path}")
                 lines.append(content)
             except Exception as e:
-                print(f"[DEBUG] ERROR reading file: {str(e)}")
                 lines.append(f"[ERROR reading file: {str(e)}]")
             lines.append("")
             lines.append("=" * 40)
             lines.append("")
         else:
-            print(f"[DEBUG] File NOT found: {path}")
-            lines.append(f"[DEBUG] File not found: {path}")
+            lines.append(f"[File not found: {path}]")
     
     return "\n".join(lines)
 
 
 def generate_instruction_file(project_path, selected_paths, user_prompt, mode="build"):
-    print(f"\n[DEBUG] === generate_instruction_file ===")
-    print(f"[DEBUG] project_path: {project_path}")
-    print(f"[DEBUG] selected_paths ({len(selected_paths)} files): {selected_paths}")
-    print(f"[DEBUG] mode: {mode}")
-    
     project_name = os.path.basename(project_path)
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     

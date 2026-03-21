@@ -12,7 +12,12 @@ from utils.file_watcher import ProjectWatcher
 
 
 class GestionarCambiosWindow(ctk.CTkToplevel):
+    """
+    Ventana principal para gestionar los cambios detectados en el archivo _changes.txt.
+    Permite visualizar, aceptar, rechazar y modificar los cambios propuestos por la IA.
+    """
     def __init__(self, parent, project_path: str, changes_file: str):
+        """Inicializa la ventana de gestión de cambios."""
         super().__init__(parent)
         
         self.title("Gestionar Cambios")
@@ -26,6 +31,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         self.change_widgets = {}
         self.changes = []
         
+        # Observador para detectar cambios externos en _changes.txt
         self.watcher = ProjectWatcher(project_path, self.on_external_change)
         self.watcher.iniciar()
         
@@ -34,18 +40,26 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         self.setup_ui()
         self.load_changes()
     
+    # --- Gestión de Ventana y Eventos Externos ---
+
     def on_close(self):
+        """Maneja el cierre de la ventana, deteniendo el watcher."""
         if hasattr(self, 'watcher'):
             self.watcher.detener()
         self.destroy()
     
     def on_external_change(self):
+        """Recarga los datos si el archivo _changes.txt cambia externamente."""
         self.load_data()
     
+    # --- Configuración de la Interfaz de Usuario (UI) ---
+
     def setup_ui(self):
+        """Configura y construye todos los elementos gráficos de la ventana."""
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         
+        # 1. Cabecera con botones globales
         header = ctk.CTkFrame(self)
         header.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
         
@@ -81,6 +95,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             width=160
         ).pack(side="left", padx=5)
         
+        # Configuración de estilos para el PanedWindow (divisor redimensionable)
         style = ttk.Style(self)
         style.theme_use("clam")
         style.configure(
@@ -94,12 +109,14 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         paned = ttk.PanedWindow(self, orient="vertical", style="TPanedwindow")
         paned.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
         
+        # 2. Panel Superior: Lista de tarjetas de cambios
         top_frame = ctk.CTkFrame(paned, corner_radius=0)
         paned.add(top_frame, weight=1)
         
         self.changes_container = ctk.CTkScrollableFrame(top_frame)
         self.changes_container.pack(fill="both", expand=True, padx=5, pady=(5, 0))
         
+        # 3. Panel Inferior: Editor de texto raw (_changes.txt)
         bottom_frame = ctk.CTkFrame(paned, corner_radius=0)
         paned.add(bottom_frame, weight=1)
         
@@ -127,6 +144,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         
         self.load_text_content()
         
+        # 4. Barra de Estado y Botones del Editor
         self.status_frame = ctk.CTkFrame(self)
         self.status_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
         
@@ -163,7 +181,10 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             font=ctk.CTkFont(size=14)
         ).pack(side="right", padx=2, pady=5)
     
+    # --- Manejo del Editor de Texto (_changes.txt) ---
+
     def load_text_content(self):
+        """Carga el contenido crudo del archivo de cambios en el editor inferior."""
         try:
             with open(self.changes_file, 'r', encoding='utf-8') as f:
                 content = f.read()
@@ -175,12 +196,15 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             self.text_content.insert("1.0", f"Error al cargar: {str(e)}")
     
     def scroll_to_top(self):
+        """Desplaza la vista del editor de texto hacia el principio."""
         self.text_content.see("1.0")
     
     def scroll_to_bottom(self):
+        """Desplaza la vista del editor de texto hacia el final."""
         self.text_content.see("end")
     
     def save_content(self):
+        """Guarda los cambios manuales hechos en el editor de texto."""
         try:
             content = self.text_content.get("1.0", "end-1c")
             content = normalize_text(content)
@@ -191,7 +215,10 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         except Exception as e:
             self.show_error(f"Error al guardar: {str(e)}")
     
+    # --- Carga y Visualización de Cambios (Tarjetas) ---
+
     def load_changes(self):
+        """Parsea el archivo XML y genera las tarjetas visuales para cada cambio."""
         self.changes = []
         self.change_widgets = {}
         
@@ -217,6 +244,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         self.update_count_label()
     
     def create_change_card(self, change: Change, index: int):
+        """Crea un widget visual para un cambio individual."""
         card = ctk.CTkFrame(self.changes_container)
         
         rel_path = os.path.relpath(change.file_path, self.project_path)
@@ -237,18 +265,25 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             'crear': '✨ Crear archivo',
             'crear_carpeta': '📁 Crear carpeta',
             'eliminar_archivo': '🗑️ Eliminar archivo',
-            'eliminar_carpeta': '🗑️ Eliminar carpeta'
+            'eliminar_carpeta': '🗑️ Eliminar carpeta',
+            'patch': '🔧 Parche Git',
+            'parche': '🔧 Parche Git'
         }.get(change.action, change.action)
+        
+        instances_text = ""
+        if hasattr(change, 'instances') and change.instances != "all":
+            instances_text = f" | Instancias: {change.instances}"
         
         ctk.CTkLabel(
             header,
-            text=f"{action_text}",
+            text=f"{action_text}{instances_text}",
             font=ctk.CTkFont(size=12)
         ).pack(side="right")
         
         diff_frame = ctk.CTkFrame(card)
         diff_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
+        # Obtener y mostrar el diff
         old_lines, new_lines = get_file_diff(change)
         
         diff_text = scrolledtext.ScrolledText(
@@ -262,7 +297,11 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         
         diff_content = ""
         
-        if change.action in ['crear_carpeta', 'eliminar_carpeta']:
+        # Lógica de visualización específica para parches
+        if change.action in ['patch', 'parche']:
+             # Mostramos el diff crudo tal cual viene, ya tiene formato diff
+             diff_content = change.new_code
+        elif change.action in ['crear_carpeta', 'eliminar_carpeta']:
             if new_lines:
                 for line in new_lines:
                     diff_content += f"{line}\n"
@@ -309,7 +348,10 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         
         return card
     
+    # --- Acciones de Aceptación/Rechazo de Cambios ---
+
     def accept_change(self, index):
+        """Aplica un cambio específico al código base."""
         widget_data = self.change_widgets.get(index)
         
         if not widget_data:
@@ -322,12 +364,13 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             
             rel_path = os.path.relpath(change.file_path, self.project_path)
             
+            # Cambios estructurales (archivos/carpetas)
             if change.action in ['crear_carpeta', 'crear', 'eliminar_archivo', 'eliminar_carpeta']:
                 original_code = get_file_at_commit(self.project_path, "HEAD", rel_path)
                 if not original_code:
                     original_code = ""
                 
-                success = apply_change(change)
+                success = apply_change(change, self.project_path)
                 
                 self.watcher.ignorar = False
                 
@@ -348,6 +391,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
                     self.update_status()
                 else:
                     self.show_error(f"No se pudo aplicar el cambio #{index + 1}\n\nLa IA puede haber generado código incorrecto o el archivo cambió.")
+            # Cambios de contenido (edición de código)
             else:
                 original_code = get_file_at_commit(self.project_path, "HEAD", rel_path)
                 success, error_msg = apply_change_with_history(self.project_path, change, original_code)
@@ -368,6 +412,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
                     self.show_error(f"No se pudo aplicar el cambio #{index + 1}\n\n{error_msg}\n\nLa IA puede haber generado código incorrecto o el archivo cambió.")
     
     def reject_change(self, index):
+        """Rechaza un cambio (solo visualmente lo marca como rechazado)."""
         widget_data = self.change_widgets.get(index)
         
         if not widget_data:
@@ -378,6 +423,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         self.update_status()
     
     def remove_applied_block(self, index):
+        """Elimina el bloque XML correspondiente del editor de texto inferior tras aplicar el cambio."""
         widget_data = self.change_widgets.get(index)
         
         if not widget_data:
@@ -387,6 +433,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         
         content = self.text_content.get("1.0", "end-1c")
         
+        # Intenta eliminar el bloque exacto, o busca por el código antiguo
         import re
         
         if hasattr(change, 'raw_xml') and change.raw_xml:
@@ -410,6 +457,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         self.text_content.insert("1.0", new_content)
     
     def accept_all(self):
+        """Itera sobre todos los cambios pendientes y los aplica."""
         accepted_count = 0
         indices_to_hide = []
         
@@ -426,7 +474,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
                     if not original_code:
                         original_code = ""
                     
-                    success = apply_change(change)
+                    success = apply_change(change, self.project_path)
                     if success:
                         if change.action == 'crear':
                             save_change(self.project_path, rel_path, "", change.new_code)
@@ -473,6 +521,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         self.show_info(f"Se aplicaron {accepted_count} cambios")
     
     def reject_all(self):
+        """Marca todos los cambios pendientes como rechazados."""
         indices_to_hide = []
         for i in list(self.change_widgets.keys()):
             widget_data = self.change_widgets.get(i)
@@ -485,7 +534,10 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         for i in indices_to_hide:
             self.hide_applied_change(i)
     
+    # --- Helpers de UI ---
+
     def hide_applied_change(self, index):
+        """Oculta la tarjeta del cambio especificado de la lista visual."""
         widget_data = self.change_widgets.get(index)
         if widget_data and widget_data['card']:
             widget_data['card'].pack_forget()
@@ -493,10 +545,12 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             self.update_count_label()
     
     def update_count_label(self):
+        """Actualiza la etiqueta que muestra la cantidad de cambios restantes."""
         remaining = len(self.change_widgets)
         self.header_label.configure(text=f"📋 Cambios restantes: {remaining}")
     
     def update_status(self):
+        """Recalcula y actualiza la barra de estado con contadores de cambios."""
         accepted = sum(1 for w in self.change_widgets.values() if w['accepted'])
         total = len(self.change_widgets)
         
@@ -507,6 +561,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         )
     
     def show_error(self, message):
+        """Muestra un cuadro de diálogo de error modal."""
         error_win = ctk.CTkToplevel(self)
         error_win.transient(self)
         error_win.attributes("-topmost", True)
@@ -522,6 +577,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         ctk.CTkButton(error_win, text="Aceptar", command=error_win.destroy).pack(pady=10)
     
     def show_info(self, message):
+        """Muestra un cuadro de diálogo de información modal."""
         info_win = ctk.CTkToplevel(self)
         info_win.transient(self)
         info_win.attributes("-topmost", True)
@@ -532,11 +588,17 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         ctk.CTkButton(info_win, text="Aceptar", command=info_win.destroy).pack(pady=5)
     
     def show_version_control(self):
+        """Abre la ventana de Control de Versiones."""
         VersionControlWindow(self, self.project_path)
 
 
 class VersionControlWindow(ctk.CTkToplevel):
+    """
+    Ventana para realizar operaciones de Git (commit, revert) y visualizar el
+    estado actual de los archivos comparado con el último commit.
+    """
     def __init__(self, parent, project_path: str):
+        """Inicializa la ventana de control de versiones."""
         super().__init__(parent)
         
         self.title("Control de Versiones")
@@ -552,7 +614,10 @@ class VersionControlWindow(ctk.CTkToplevel):
         self.setup_ui()
         self.load_data()
     
+    # --- Configuración de UI ---
+
     def setup_ui(self):
+        """Configura los paneles y widgets de la ventana de control de versiones."""
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=2)
         self.grid_rowconfigure(1, weight=1)
@@ -592,6 +657,7 @@ class VersionControlWindow(ctk.CTkToplevel):
         
         left_panel.grid_rowconfigure(3, weight=1)
         
+        # Sección de Info del Commit
         commit_section = ctk.CTkFrame(left_panel)
         commit_section.grid(row=0, column=0, padx=10, pady=(10, 5), sticky="ew")
         commit_section.grid_columnconfigure(0, weight=1)
@@ -622,6 +688,7 @@ class VersionControlWindow(ctk.CTkToplevel):
         )
         self.btn_revert_commit.grid(row=2, column=0, sticky="w", pady=(0, 5))
         
+        # Sección de Lista de Archivos
         files_section = ctk.CTkFrame(left_panel)
         files_section.grid(row=2, column=0, padx=5, pady=(10, 5), sticky="ew")
         files_section.grid_columnconfigure(0, weight=1)
@@ -643,6 +710,7 @@ class VersionControlWindow(ctk.CTkToplevel):
         )
         self.status_label.grid(row=4, column=0, padx=10, pady=10, sticky="w")
         
+        # Panel Derecho: Visualizador de Diff
         right_panel = ctk.CTkFrame(paned, corner_radius=0)
         paned.add(right_panel, weight=2)
         
@@ -701,7 +769,10 @@ class VersionControlWindow(ctk.CTkToplevel):
         self.new_text.tag_config("agregado", background="#1E3A1E")
         self.new_text.tag_config("normal", background="#1E1E1E")
     
+    # --- Carga de Datos ---
+
     def load_data(self):
+        """Obtiene el estado actual de Git y la lista de archivos modificados."""
         history = get_history(self.project_path, limit=1)
         
         if history:
@@ -739,6 +810,7 @@ class VersionControlWindow(ctk.CTkToplevel):
             self.create_file_card(filename)
     
     def create_file_card(self, filename: str):
+        """Crea un elemento en la lista para un archivo modificado."""
         versions = get_apply_history(self.project_path, filename)
         version_count = len(versions)
         
@@ -822,7 +894,10 @@ class VersionControlWindow(ctk.CTkToplevel):
             height=28
         ).pack(side="left", padx=2)
     
+    # --- Navegación y Diff ---
+
     def navigate_version(self, filename: str, direction: int):
+        """Navega entre las versiones del historial de aplicación de cambios."""
         versions = get_apply_history(self.project_path, filename)
         
         if direction == -1:
@@ -837,6 +912,7 @@ class VersionControlWindow(ctk.CTkToplevel):
         self.load_data()
     
     def show_file_diff(self, filename: str):
+        """Muestra el diff side-by-side entre el último commit y la versión actual/seleccionada."""
         self.selected_file = filename
         
         versions = get_apply_history(self.project_path, filename)
@@ -901,7 +977,10 @@ class VersionControlWindow(ctk.CTkToplevel):
         self.original_text.configure(state="disabled")
         self.new_text.configure(state="disabled")
     
+    # --- Acciones de Git (Revert, Commit) ---
+
     def revert_to_commit(self, filename: str):
+        """Revierte un archivo específico al estado del último commit."""
         history = get_history(self.project_path, limit=1)
         
         if not history:
@@ -961,6 +1040,7 @@ class VersionControlWindow(ctk.CTkToplevel):
         ).pack(side="left", padx=10)
     
     def show_commit_dialog(self):
+        """Muestra un diálogo para crear un nuevo commit."""
         status = get_status(self.project_path)
         has_changes = status["staged"] or status["modified"] or status["untracked"]
         
@@ -1019,6 +1099,7 @@ class VersionControlWindow(ctk.CTkToplevel):
         ).pack(side="left", padx=10)
     
     def revert_last_commit(self):
+        """Descarta TODOS los cambios locales no confirmados (reset hard a HEAD)."""
         history = get_history(self.project_path, limit=1)
         
         if not history:
@@ -1082,7 +1163,10 @@ class VersionControlWindow(ctk.CTkToplevel):
             width=100
         ).pack(side="left", padx=10)
     
+    # --- Helpers ---
+
     def show_error(self, message):
+        """Muestra un mensaje de error en una ventana modal."""
         error_win = ctk.CTkToplevel(self)
         error_win.transient(self)
         error_win.attributes("-topmost", True)
@@ -1098,6 +1182,7 @@ class VersionControlWindow(ctk.CTkToplevel):
         ctk.CTkButton(error_win, text="Aceptar", command=error_win.destroy).pack(pady=10)
     
     def show_success(self, message):
+        """Muestra un mensaje de éxito en una ventana modal."""
         success_win = ctk.CTkToplevel(self)
         success_win.transient(self)
         success_win.attributes("-topmost", True)

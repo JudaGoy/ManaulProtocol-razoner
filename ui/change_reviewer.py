@@ -7,7 +7,12 @@ from core.change_parser import Change, ChangeError, apply_change, get_file_diff
 
 
 class ChangeReviewerWindow(ctk.CTkToplevel):
+    """
+    Ventana independiente para revisar una lista de cambios propuestos por la IA.
+    Permite aceptar o rechazar cambios uno por uno o en lote.
+    """
     def __init__(self, parent, project_path: str, changes: List[Change]):
+        """Inicializa la ventana de revisión."""
         super().__init__(parent)
         
         self.title("Revisor de Cambios")
@@ -23,7 +28,10 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
         self.setup_ui()
         self.load_changes()
     
+    # --- Configuración de la Interfaz de Usuario (UI) ---
+
     def setup_ui(self):
+        """Configura los elementos gráficos: cabecera, lista de cambios y pie de página."""
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         
@@ -68,11 +76,13 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
         self.status_label.pack(pady=5)
     
     def load_changes(self):
+        """Carga los cambios en la lista visual."""
         for i, change in enumerate(self.changes):
             card = self.create_change_card(change, i)
             card.pack(fill="x", pady=5, padx=5)
     
     def create_change_card(self, change: Change, index: int):
+        """Crea la tarjeta visual para un cambio individual."""
         card = ctk.CTkFrame(self.changes_container)
         
         rel_path = os.path.relpath(change.file_path, self.project_path)
@@ -105,6 +115,7 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
         diff_frame = ctk.CTkFrame(card)
         diff_frame.pack(fill="both", expand=True, padx=10, pady=5)
         
+        # Obtener diff. Si es 'patch', new_lines contiene el diff completo.
         old_lines, new_lines = get_file_diff(change)
         
         diff_text = scrolledtext.ScrolledText(
@@ -117,8 +128,13 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
         diff_text.pack(fill="both", expand=True, padx=5, pady=5)
         
         diff_content = ""
-        
-        if change.action in ['crear_carpeta', 'eliminar_carpeta']:
+
+        # Lógica de visualización según el tipo de acción
+        if change.action in ['patch', 'parche']:
+            # Si es un parche, mostramos el contenido tal cual (ya viene formateado como diff)
+            diff_content = change.new_code
+            
+        elif change.action in ['crear_carpeta', 'eliminar_carpeta']:
             if new_lines:
                 for line in new_lines:
                     diff_content += f"{line}\n"
@@ -165,11 +181,14 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
         
         return card
     
+    # --- Acciones de Botones ---
+
     def accept_change(self, index):
+        """Aplica el cambio seleccionado."""
         widget_data = self.change_widgets[index]
         
         if not widget_data['accepted']:
-            success = apply_change(widget_data['change'])
+            success = apply_change(widget_data['change'], self.project_path)
             
             if success:
                 widget_data['accepted'] = True
@@ -180,17 +199,19 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
                 self.show_error(f"No se pudo aplicar el cambio {index + 1}")
     
     def reject_change(self, index):
+        """Marca el cambio como rechazado visualmente."""
         widget_data = self.change_widgets[index]
         widget_data['card'].configure(fg_color="#3d1a1a")
         self.update_status()
         self.hide_applied_change(index)
     
     def accept_all(self):
+        """Intenta aplicar todos los cambios pendientes."""
         accepted_count = 0
         indices_to_hide = []
         for i, widget_data in self.change_widgets.items():
             if not widget_data['accepted']:
-                success = apply_change(widget_data['change'])
+                success = apply_change(widget_data['change'], self.project_path)
                 if success:
                     widget_data['accepted'] = True
                     widget_data['card'].configure(fg_color="#1a3d1a")
@@ -205,6 +226,7 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
         self.show_info(f"Se aplicaron {accepted_count} cambios")
     
     def reject_all(self):
+        """Rechaza todos los cambios pendientes."""
         indices_to_hide = []
         for i, widget_data in self.change_widgets.items():
             widget_data['card'].configure(fg_color="#3d1a1a")
@@ -214,7 +236,10 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
         for i in indices_to_hide:
             self.hide_applied_change(i)
     
+    # --- Helpers de UI ---
+
     def hide_applied_change(self, index):
+        """Oculta la tarjeta de un cambio procesado."""
         widget_data = self.change_widgets.get(index)
         if widget_data and widget_data['card']:
             widget_data['card'].pack_forget()
@@ -222,10 +247,12 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
             self.update_count_label()
     
     def update_count_label(self):
+        """Actualiza el contador de cambios restantes en la cabecera."""
         remaining = len(self.change_widgets)
         self.header_label.configure(text=f"📋 Cambios restantes: {remaining}")
     
     def update_status(self):
+        """Actualiza la barra de estado inferior."""
         accepted = sum(1 for w in self.change_widgets.values() if w['accepted'])
         total = len(self.change_widgets)
         
@@ -236,6 +263,7 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
         )
     
     def show_error(self, message):
+        """Muestra un mensaje de error modal."""
         error_win = ctk.CTkToplevel(self)
         error_win.transient(self)
         error_win.attributes("-topmost", True)
@@ -246,6 +274,7 @@ class ChangeReviewerWindow(ctk.CTkToplevel):
         ctk.CTkButton(error_win, text="Aceptar", command=error_win.destroy).pack(pady=5)
     
     def show_info(self, message):
+        """Muestra un mensaje de información modal."""
         info_win = ctk.CTkToplevel(self)
         info_win.transient(self)
         info_win.attributes("-topmost", True)

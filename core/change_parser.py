@@ -3,6 +3,7 @@ import re
 import html
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+import difflib
 
 
 def normalize_text(text: str) -> str:
@@ -48,6 +49,7 @@ class Change:
     action: str
     old_code: str
     new_code: str
+    instances: str = "all"
     raw_xml: str = ""
     applied: bool = False
 
@@ -58,6 +60,48 @@ class ChangeError:
     message: str
     file_path: str
     detail: str
+
+
+def replace_specific_instances(content: str, old_code: str, new_code: str, instances: str) -> str:
+    """
+    Reemplaza instancias específicas de old_code en content.
+    
+    Args:
+        content: Contenido del archivo
+        old_code: Código a buscar
+        new_code: Código de reemplazo
+        instances: "0"=primera, "1"=segunda, "0,2"=primera y tercera, "all"=todas
+    
+    Returns:
+        Contenido con los reemplazos realizados
+    """
+    if instances == "all" or not instances:
+        return content.replace(old_code, new_code)
+    
+    positions = []
+    start = 0
+    while True:
+        pos = content.find(old_code, start)
+        if pos == -1:
+            break
+        positions.append(pos)
+        start = pos + 1
+    
+    if not positions:
+        return content
+    
+    try:
+        target = [int(i.strip()) for i in instances.split(",")]
+    except ValueError:
+        return content.replace(old_code, new_code)
+    
+    result = content
+    for idx in sorted(target, reverse=True):
+        if 0 <= idx < len(positions):
+            pos = positions[idx]
+            result = result[:pos] + new_code + result[pos + len(old_code):]
+    
+    return result
 
 
 def parse_changes(changes_path, project_path):
@@ -93,23 +137,13 @@ def parse_xml_content(content, project_path):
     changes = []
     errors = []
     
-    print(f"\n[DEBUG] Contenido length (antes): {len(content)} chars")
-    print(f"[DEBUG] Tiene system-reminder: {'<system-reminder>' in content}")
-    
     content = re.sub(r'<system-reminder>.*?</system-reminder>', '', content, flags=re.DOTALL | re.IGNORECASE)
     content = re.sub(r'<system-.*?>.*?</system-.*?>', '', content, flags=re.DOTALL)
-    
-    print(f"[DEBUG] Contenido length (despues): {len(content)} chars")
-    print(f"[DEBUG] Todavia tiene system-reminder: {'<system-reminder>' in content}")
     
     block_pattern = re.compile(r'<CAMBIOS>(.*?)</CAMBIOS>', re.DOTALL)
     blocks = block_pattern.findall(content)
     
-    print(f"[DEBUG] Bloques <CAMBIOS> encontrados: {len(blocks)}")
-    
-    for i, block in enumerate(blocks):
-        print(f"[DEBUG] === BLOQUE #{i+1} ===")
-        
+    for block in blocks:
         archivo_match = re.search(r'<ARCHIVO>\s*(.+?)\s*</ARCHIVO>', block, re.DOTALL)
         if not archivo_match:
             continue
@@ -118,36 +152,33 @@ def parse_xml_content(content, project_path):
         old_match = re.search(r'<CODIGO_ANTIGUO>\s*(.*?)\s*</CODIGO_ANTIGUO>', block, re.DOTALL)
         new_match = re.search(r'<CODIGO_NUEVO>\s*(.*?)\s*</CODIGO_NUEVO>', block, re.DOTALL)
         
-        if not old_match or not new_match:
-            print(f"[DEBUG] ERROR: No se encontro CODIGO_ANTIGUO o CODIGO_NUEVO")
+        # CODIGO_NUEVO es obligatorio (contiene el diff o el contenido nuevo)
+        if not new_match:
             continue
         
-        old_code = old_match.group(1)
         new_code = new_match.group(1)
+        old_code = old_match.group(1) if old_match else ""
         archivo = archivo_match.group(1).strip()
         accion = accion_match.group(1).strip().lower() if accion_match else ''
         
-        print(f"[DEBUG] old_code RAW (primeros 200 chars):")
-        print(repr(old_code[:200]))
-        print(f"[DEBUG] old_code RAW length: {len(old_code)}")
-        print(f"[DEBUG] old_code.strip() (primeros 200 chars):")
-        print(repr(old_code.strip()[:200]))
+        # Si no hay acción pero hay un diff en new_code, asumimos patch
+        if not accion and ('diff --git' in new_code or ('--- a/' in new_code and '+++ b/' in new_code)):
+            accion = 'patch'
+        
+        instances_match = re.search(r'<INSTANCIAS>\s*(.*?)\s*</INSTANCIAS>', block, re.DOTALL)
+        instances = instances_match.group(1).strip() if instances_match else "all"
         
         if archivo:
             abs_path = os.path.join(project_path, archivo)
-            normalized_old = normalize_text(old_code.strip())
-            normalized_new = normalize_text(new_code.strip())
-            
-            print(f"[DEBUG] archivo: {archivo}")
-            print(f"[DEBUG] accion: {accion}")
-            print(f"[DEBUG] old_code length: {len(normalized_old)}")
-            print(f"[DEBUG] new_code length: {len(normalized_new)}")
+            normalized_old = normalize_text(old_code)
+            normalized_new = normalize_text(new_code)
             
             changes.append(Change(
                 file_path=abs_path,
                 action=accion,
                 old_code=normalized_old,
                 new_code=normalized_new,
+                instances=instances,
                 raw_xml=f"<CAMBIOS>{block}</CAMBIOS>"
             ))
     
@@ -164,12 +195,111 @@ def get_original_code(change: Change) -> str:
         return ""
 
 
-def apply_change(change: Change) -> bool:
-    print(f"\n[DEBUG apply_change] ===")
-    print(f"[DEBUG] archivo: {change.file_path}")
-    print(f"[DEBUG] action: {change.action}")
+def _apply_text_change_as_patch(change: Change, project_path: str) -> bool:
+    """
+    Convierte un cambio de texto (reemplazar, insertar) en un parche y lo aplica.
+    Esto unifica la lógica de modificación de contenido bajo el robusto `git apply`.
+    """
+    if not project_path:
+        print(f"[ERROR] Se requiere project_path para aplicar '{change.action}' como parche.")
+        return False
+    if not os.path.exists(change.file_path):
+        print(f"[DEBUG] ✗ ERROR: Archivo no encontrado para '{change.action}': {change.file_path}")
+        return False
+
+    print(f"[DEBUG apply_change] Procesando {change.action.upper()} como PATCH para {os.path.basename(change.file_path)}")
     
+    with open(change.file_path, 'r', encoding='utf-8') as f:
+        original_content = f.read()
+
+    target_old_code = change.old_code
+    
+    if not target_old_code.strip():
+        print(f"[DEBUG] ⚠️ RECHAZADO: El código a buscar ('old_code') está vacío o solo contiene espacios.")
+        return False
+
+    # --- BÚSQUEDA FLEXIBLE ---
+    # Si la coincidencia exacta falla, intentamos normalizar
+    if target_old_code not in original_content:
+        print(f"[DEBUG] No hay coincidencia exacta. Intentando búsqueda flexible...")
+        
+        # 1. Intentar normalización de saltos de línea (Windows vs Unix)
+        if target_old_code.replace('\n', '\r\n') in original_content:
+            target_old_code = target_old_code.replace('\n', '\r\n')
+            print(f"[DEBUG] -> Coincidencia encontrada ajustando saltos de línea (LF -> CRLF).")
+        elif target_old_code.replace('\r\n', '\n') in original_content:
+            target_old_code = target_old_code.replace('\r\n', '\n')
+            print(f"[DEBUG] -> Coincidencia encontrada ajustando saltos de línea (CRLF -> LF).")
+        else:
+            # 2. Intentar Regex ignorando espacios múltiples (fallback final)
+            parts = change.old_code.split()
+            if parts:
+                # Crear regex: palabra + espacio(s) + palabra...
+                pattern = r'\s+'.join([re.escape(p) for p in parts])
+                match = re.search(pattern, original_content)
+                if match:
+                    target_old_code = match.group(0)
+                    print(f"[DEBUG] -> Coincidencia encontrada ignorando diferencias de espacios/indentación.")
+                else:
+                    print(f"[DEBUG] ✗ ERROR: Código no encontrado ni con búsqueda flexible.")
+                    return False
+            else:
+                return False
+
+    # Generar nuevo contenido basado en la acción
+    # Usamos target_old_code que es el texto REAL que existe en el archivo
+    if change.action == 'reemplazar':
+        new_content = replace_specific_instances(original_content, target_old_code, change.new_code, change.instances)
+    elif change.action == 'insertar':
+        new_content = original_content.replace(target_old_code, target_old_code + "\n" + change.new_code, 1)
+    else:
+        return False # No debería ocurrir
+
+    if original_content == new_content:
+        print("[DEBUG] ! AVISO: La operación no resultó en cambios. Se considera exitoso.")
+        change.applied = True
+        return True
+
+    # Generar y aplicar el parche
+    from utils.git_manager import apply_git_patch
+    rel_path = os.path.relpath(change.file_path, project_path).replace('\\', '/')
+    
+    diff = difflib.unified_diff(
+        original_content.splitlines(keepends=True),
+        new_content.splitlines(keepends=True),
+        fromfile=f'a/{rel_path}',
+        tofile=f'b/{rel_path}',
+    )
+    patch_content = "".join(diff)
+
+    print(f"[DEBUG] '{change.action}' convertido a parche. Aplicando con git apply...")
+    success, msg = apply_git_patch(project_path, patch_content)
+    change.applied = success
+    return success
+
+
+def apply_change(change: Change, project_path: str = None) -> bool:
     try:
+        # Lógica para aplicar parches (Diffs de Git)
+        if change.action == 'patch' or change.action == 'parche':
+            if not project_path:
+                print("[ERROR] Se requiere project_path para aplicar parches")
+                return False
+            
+            # Importación local para evitar ciclos de importación
+            from utils.git_manager import apply_git_patch
+            
+            # El contenido del diff está en change.new_code
+            success, msg = apply_git_patch(project_path, change.new_code)
+            if not success:
+                print(f"[DEBUG] ✗ git apply falló:\n{msg}")
+            change.applied = success
+            return success
+
+        # Unificamos reemplazo e inserción para que usen parches internamente
+        if change.action in ['reemplazar', 'insertar']:
+            return _apply_text_change_as_patch(change, project_path)
+
         if change.action == 'crear_carpeta':
             os.makedirs(change.file_path, exist_ok=True)
             change.applied = True
@@ -199,77 +329,10 @@ def apply_change(change: Change) -> bool:
             change.applied = True
             return True
         
-        if change.action == 'insertar':
-            if not os.path.exists(change.file_path):
-                return False
-            with open(change.file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            old_code_stripped = change.old_code.strip()
-            if old_code_stripped and old_code_stripped in content:
-                new_content = content.replace(old_code_stripped, old_code_stripped + "\n" + change.new_code, 1)
-                with open(change.file_path, 'w', encoding='utf-8') as f:
-                    f.write(new_content)
-                change.applied = True
-                return True
-            return False
-        
-        if not os.path.exists(change.file_path):
-            return False
-        
-        with open(change.file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        old_code_stripped = change.old_code.strip()
-        
-        if not old_code_stripped:
-            print(f"[DEBUG ERROR] old_code está vacío después de strip()")
-            return False
-        
-        print(f"[DEBUG] old_code length: {len(old_code_stripped)}")
-        print(f"[DEBUG] content length: {len(content)}")
-        print(f"[DEBUG] old_code (primeros 200 chars):")
-        print(repr(old_code_stripped[:200]))
-        print(f"[DEBUG] old_code count newlines: {old_code_stripped.count(chr(10))}")
-        
-        if old_code_stripped in content:
-            new_content = content.replace(old_code_stripped, change.new_code, 1)
-            with open(change.file_path, 'w', encoding='utf-8') as f:
-                f.write(new_content)
-            change.applied = True
-            print(f"[DEBUG] ✓ Cambio aplicado exitosamente")
-            return True
-        
-        # ===== DEBUG: Diagnóstico de por qué NO coincidió =====
-        print(f"[DEBUG] === ERROR: Código no encontrado en archivo ===")
-        
-        # Buscar primera línea del código
-        first_line = old_code_stripped.split('\n')[0][:50] if '\n' in old_code_stripped else old_code_stripped[:50]
-        print(f"[DEBUG] Primera línea buscada: {repr(first_line)}")
-        print(f"[DEBUG] Primera línea ENCONTRADA en archivo: {first_line in content}")
-        
-        # Buscar variaciones comunes
-        first_line_stripped = first_line.strip()
-        print(f"[DEBUG] Primera línea sin espacios: {repr(first_line_stripped)}")
-        print(f"[DEBUG] Primera línea sin espacios ENCONTRADA: {first_line_stripped in content}")
-        
-        # Mostrar contexto del archivo donde debería estar
-        if first_line_stripped and first_line_stripped in content:
-            idx = content.find(first_line_stripped)
-            print(f"[DEBUG] Contexto en archivo (50 chars antes y después):")
-            print(repr(content[max(0,idx-50):idx+150]))
-            print(f"[DEBUG] Línea con indentación real:")
-            lines_before = content[:idx].count('\n')
-            line_start = content.rfind('\n', 0, idx) + 1
-            line_end = content.find('\n', idx)
-            actual_line = content[line_start:line_end if line_end != -1 else len(content)]
-            print(f"[DEBUG] Línea real #{lines_before + 1}: {repr(actual_line[:80])}")
-        
         return False
         
     except Exception as e:
-        print(f"[DEBUG ERROR] Excepción: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"[DEBUG] Excepción: {type(e).__name__}: {e}")
         return False
 
 
