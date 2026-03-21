@@ -10,6 +10,36 @@ from services.git_service import (
 )
 
 
+def remove_applied_block(changes_file: str, change: Change):
+    content = ""
+    try:
+        with open(changes_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except Exception:
+        return
+    
+    if not hasattr(change, 'file_path') or not change.file_path:
+        return
+    
+    rel_path = os.path.relpath(change.file_path, os.path.dirname(os.path.dirname(changes_file)))
+    
+    pattern = re.compile(
+        r'<CAMBIOS>.*?<ARCHIVO>\s*' + re.escape(rel_path) + r'\s*</ARCHIVO>.*?</CAMBIOS>',
+        re.DOTALL
+    )
+    
+    new_content = pattern.sub('', content)
+    
+    if new_content != content:
+        new_content = new_content.strip()
+        while "\n\n\n" in new_content:
+            new_content = new_content.replace("\n\n\n", "\n\n")
+        new_content = new_content.strip() + "\n"
+        
+        with open(changes_file, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+
+
 def load_changes(project_path: str, changes_file: str) -> tuple[list, list]:
     changes = []
     errors = []
@@ -111,32 +141,6 @@ def accept_all_changes(project_path: str, changes: list, watcher_holder: dict) -
                 indices_to_accept.append(i)
     
     return accepted_count, indices_to_accept
-
-
-def remove_applied_block(changes_file: str, change: Change):
-    content = ""
-    try:
-        with open(changes_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-    except Exception:
-        return
-    
-    if hasattr(change, 'raw_xml') and change.raw_xml:
-        raw = change.raw_xml.strip()
-        if raw in content:
-            new_content = content.replace(change.raw_xml, "", 1)
-        else:
-            pattern = re.escape(raw)
-            new_content = re.sub(pattern, "", content, count=1)
-    elif hasattr(change, 'old_code') and change.old_code:
-        old = change.old_code.strip()
-        pattern = re.escape(old)
-        new_content = re.sub(pattern, "", content, count=1)
-    else:
-        return
-    
-    with open(changes_file, 'w', encoding='utf-8') as f:
-        f.write(new_content)
 
 
 def get_action_text(action: str) -> str:

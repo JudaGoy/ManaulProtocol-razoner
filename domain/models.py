@@ -128,7 +128,7 @@ def parse_xml_content(content, project_path):
     content = re.sub(r'<system-reminder>.*?</system-reminder>', '', content, flags=re.DOTALL | re.IGNORECASE)
     content = re.sub(r'<system-.*?>.*?</system-.*?>', '', content, flags=re.DOTALL)
     
-    block_pattern = re.compile(r'<CAMBIOS>(.*?)</CAMBIOS>', re.DOTALL)
+    block_pattern = re.compile(r'(<CAMBIOS>.*?</CAMBIOS>)', re.DOTALL)
     blocks = block_pattern.findall(content)
     
     for block in blocks:
@@ -165,7 +165,7 @@ def parse_xml_content(content, project_path):
                 old_code=normalized_old,
                 new_code=normalized_new,
                 instances=instances,
-                raw_xml=f"<CAMBIOS>{block}</CAMBIOS>"
+                raw_xml=block
             ))
     
     return changes, errors
