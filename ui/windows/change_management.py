@@ -1,0 +1,438 @@
+import customtkinter as ctk
+import os
+import difflib
+from tkinter import scrolledtext
+from tkinter import ttk
+from typing import List, Dict
+
+from domain.models import Change, get_file_diff, parse_xml_content, normalize_text
+from services.file_watcher import ProjectWatcher
+from ui.windows.version_control import VersionControlWindow
+from ui.windows.change_management_controller import (
+    load_changes, accept_change, accept_all_changes,
+    remove_applied_block, get_action_text
+)
+
+
+class GestionarCambiosWindow(ctk.CTkToplevel):
+    def __init__(self, parent, project_path: str, changes_file: str):
+        super().__init__()
+        
+        self.title("Gestionar Cambios")
+        self.geometry("1000x700")
+        
+        self.transient(parent)
+        
+        self.main_window = parent
+        self.project_path = project_path
+        self.changes_file = changes_file
+        self.change_widgets = {}
+        self.changes = []
+        
+        self.watcher = ProjectWatcher(project_path, self.load_changes)
+        self.watcher.iniciar()
+        
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+        
+        self.setup_ui()
+        self.load_changes()
+    
+    def on_close(self):
+        if hasattr(self, 'watcher'):
+            self.watcher.detener()
+        self.destroy()
+    
+    def load_changes(self):
+        self.changes = []
+        self.change_widgets = {}
+        
+        for widget in self.changes_container.winfo_children():
+            widget.destroy()
+        
+        try:
+            with open(self.changes_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            if content.strip():
+                self.changes, errors = parse_xml_content(content, self.project_path)
+                
+                if errors:
+                    self.status_label.configure(text=f"⚠️ Errores: {len(errors)}")
+        except Exception:
+            pass
+        
+        for i, change in enumerate(self.changes):
+            card = self.create_change_card(change, i)
+            card.pack(fill="x", pady=5, padx=5)
+        
+        self.update_count_label()
+    
+    def setup_ui(self):
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=1)
+        
+        header = ctk.CTkFrame(self)
+        header.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        
+        self.header_label = ctk.CTkLabel(
+            header,
+            text="📋 Cambios detectados: 0",
+            font=ctk.CTkFont(size=18, weight="bold")
+        )
+        self.header_label.pack(side="left", padx=10)
+        
+        btn_frame = ctk.CTkFrame(header)
+        btn_frame.pack(side="right", padx=10)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="✅ Aceptar Todos",
+            command=self.accept_all,
+            fg_color="green"
+        ).pack(side="left", padx=5)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="❌ Rechazar Todos",
+            command=self.reject_all,
+            fg_color="red"
+        ).pack(side="left", padx=5)
+        
+        ctk.CTkButton(
+            btn_frame,
+            text="📊 Control de Versiones",
+            command=self.show_version_control,
+            fg_color="#fd7e14",
+            width=160
+        ).pack(side="left", padx=5)
+        
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(
+            "TPanedwindow", 
+            background="#2B2B2B",
+            sashthickness=2,
+            sashpad=1,
+            borderwidth=0
+        )
+        
+        paned = ttk.PanedWindow(self, orient="vertical", style="TPanedwindow")
+        paned.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+        
+        top_frame = ctk.CTkFrame(paned, corner_radius=0)
+        paned.add(top_frame, weight=1)
+        
+        self.changes_container = ctk.CTkScrollableFrame(top_frame)
+        self.changes_container.pack(fill="both", expand=True, padx=5, pady=(5, 0))
+        
+        bottom_frame = ctk.CTkFrame(paned, corner_radius=0)
+        paned.add(bottom_frame, weight=1)
+        
+        text_container = ctk.CTkFrame(bottom_frame)
+        text_container.pack(fill="both", expand=True, padx=5, pady=(0, 5))
+        
+        ctk.CTkLabel(
+            text_container,
+            text="📝 Contenido de _changes.txt:",
+            font=ctk.CTkFont(size=14, weight="bold")
+        ).pack(anchor="w", padx=5, pady=(5,0))
+        
+        text_area_frame = ctk.CTkFrame(text_container, fg_color="transparent")
+        text_area_frame.pack(fill="both", expand=True, pady=5)
+        
+        self.text_content = ctk.CTkTextbox(
+            text_area_frame,
+            font=("Consolas", 11),
+            text_color="white",
+            fg_color="#1E1E1E",
+            wrap="none",
+            undo=True
+        )
+        self.text_content.pack(side="left", fill="both", expand=True)
+        
+        self.load_text_content()
+        
+        self.status_frame = ctk.CTkFrame(self)
+        self.status_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=10)
+        
+        self.status_label = ctk.CTkLabel(
+            self.status_frame,
+            text="Carga cambios desde el panel de arriba o pega nuevo contenido abajo",
+            font=ctk.CTkFont(size=12)
+        )
+        self.status_label.pack(side="left", padx=10, pady=5)
+
+        ctk.CTkButton(
+            self.status_frame,
+            text="💾 Guardar",
+            command=self.save_content,
+            fg_color="green",
+            width=120
+        ).pack(side="right", padx=10, pady=5)
+
+        ctk.CTkButton(
+            self.status_frame,
+            text="▼",
+            command=self.scroll_to_bottom,
+            width=40,
+            height=30,
+            font=ctk.CTkFont(size=14)
+        ).pack(side="right", padx=2, pady=5)
+
+        ctk.CTkButton(
+            self.status_frame,
+            text="▲",
+            command=self.scroll_to_top,
+            width=40,
+            height=30,
+            font=ctk.CTkFont(size=14)
+        ).pack(side="right", padx=2, pady=5)
+    
+    def load_text_content(self):
+        try:
+            with open(self.changes_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            content = normalize_text(content)
+            self.text_content.delete("1.0", "end")
+            self.text_content.insert("1.0", content)
+            self.scroll_to_bottom()
+        except Exception as e:
+            self.text_content.insert("1.0", f"Error al cargar: {str(e)}")
+    
+    def scroll_to_top(self):
+        self.text_content.see("1.0")
+    
+    def scroll_to_bottom(self):
+        self.text_content.see("end")
+    
+    def save_content(self):
+        try:
+            content = self.text_content.get("1.0", "end-1c")
+            content = normalize_text(content)
+            with open(self.changes_file, 'w', encoding='utf-8') as f:
+                f.write(content)
+            self.load_changes()
+            self.status_label.configure(text="✅ Contenido guardado correctamente")
+        except Exception as e:
+            self.show_error(f"Error al guardar: {str(e)}")
+    
+    def create_change_card(self, change: Change, index: int):
+        card = ctk.CTkFrame(self.changes_container)
+        
+        rel_path = os.path.relpath(change.file_path, self.project_path)
+        
+        header = ctk.CTkFrame(card, fg_color="transparent")
+        header.pack(fill="x", padx=10, pady=5)
+        
+        ctk.CTkLabel(
+            header,
+            text=f"📄 {rel_path}",
+            font=ctk.CTkFont(size=14, weight="bold")
+        ).pack(side="left")
+        
+        instances_text = ""
+        if hasattr(change, 'instances') and change.instances != "all":
+            instances_text = f" | Instancias: {change.instances}"
+        
+        ctk.CTkLabel(
+            header,
+            text=f"{get_action_text(change.action)}{instances_text}",
+            font=ctk.CTkFont(size=12)
+        ).pack(side="right")
+        
+        diff_frame = ctk.CTkFrame(card)
+        diff_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        old_lines, new_lines = get_file_diff(change)
+        
+        diff_text = scrolledtext.ScrolledText(
+            diff_frame,
+            height=15,
+            font=("Consolas", 10),
+            bg="#1E1E1E",
+            fg="white"
+        )
+        diff_text.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        diff_content = ""
+        
+        if change.action in ['patch', 'parche']:
+             diff_content = change.new_code
+        elif change.action in ['crear_carpeta', 'eliminar_carpeta']:
+            if new_lines:
+                for line in new_lines:
+                    diff_content += f"{line}\n"
+        else:
+            if old_lines:
+                diff_content += "--- Código original (-):\n"
+                for line in old_lines:
+                    diff_content += f"- {line.rstrip()}\n"
+            
+            if new_lines:
+                diff_content += "\n+++ Código nuevo (+):\n"
+                for line in new_lines:
+                    diff_content += f"+ {line.rstrip()}\n"
+        
+        diff_text.insert("1.0", diff_content)
+        diff_text.configure(state="disabled")
+        
+        btn_frame = ctk.CTkFrame(card, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=10, pady=5)
+        
+        self.change_widgets[index] = {
+            'change': change,
+            'card': card,
+            'accepted': False
+        }
+        
+        accept_btn = ctk.CTkButton(
+            btn_frame,
+            text="✅ Aceptar",
+            command=lambda idx=index: self.accept_change(idx),
+            fg_color="green",
+            width=120
+        )
+        accept_btn.pack(side="left", padx=5)
+        
+        reject_btn = ctk.CTkButton(
+            btn_frame,
+            text="❌ Rechazar",
+            command=lambda idx=index: self.reject_change(idx),
+            fg_color="red",
+            width=120
+        )
+        reject_btn.pack(side="left", padx=5)
+        
+        return card
+    
+    def accept_change(self, index):
+        widget_data = self.change_widgets.get(index)
+        
+        if not widget_data:
+            return
+        
+        if not widget_data['accepted']:
+            change = widget_data['change']
+            
+            self.watcher.ignorar = True
+            
+            success, error_msg = accept_change(self.project_path, change, {})
+            
+            self.watcher.ignorar = False
+            
+            if success:
+                widget_data['accepted'] = True
+                widget_data['card'].configure(fg_color="#1a3d1a")
+                remove_applied_block(self.changes_file, change)
+                self.hide_applied_change(index)
+                self.update_status()
+                
+                if change.action in ['crear', 'crear_carpeta']:
+                    if hasattr(self.main_window, 'refresh_tree'):
+                        self.main_window.refresh_tree(select_new=True)
+            else:
+                self.show_error(f"No se pudo aplicar el cambio #{index + 1}\n\n{error_msg}")
+    
+    def reject_change(self, index):
+        widget_data = self.change_widgets.get(index)
+        
+        if not widget_data:
+            return
+        
+        widget_data['card'].configure(fg_color="#3d1a1a")
+        self.hide_applied_change(index)
+        self.update_status()
+    
+    def accept_all(self):
+        accepted_count = 0
+        indices_to_hide = []
+        
+        self.watcher.ignorar = True
+        
+        for i in list(self.change_widgets.keys()):
+            widget_data = self.change_widgets.get(i)
+            if widget_data and not widget_data['accepted']:
+                change = widget_data['change']
+                
+                success, error_msg = accept_change(self.project_path, change, {})
+                
+                if success:
+                    widget_data['accepted'] = True
+                    widget_data['card'].configure(fg_color="#1a3d1a")
+                    remove_applied_block(self.changes_file, change)
+                    accepted_count += 1
+                    indices_to_hide.append(i)
+        
+        self.watcher.ignorar = False
+        
+        if hasattr(self.main_window, 'refresh_tree') and accepted_count > 0:
+            self.main_window.refresh_tree(select_new=True)
+        
+        self.update_status()
+        
+        for i in indices_to_hide:
+            self.hide_applied_change(i)
+        
+        self.show_info(f"Se aplicaron {accepted_count} cambios")
+    
+    def reject_all(self):
+        indices_to_hide = []
+        for i in list(self.change_widgets.keys()):
+            widget_data = self.change_widgets.get(i)
+            if widget_data:
+                widget_data['card'].configure(fg_color="#3d1a1a")
+                indices_to_hide.append(i)
+        
+        self.update_status()
+        
+        for i in indices_to_hide:
+            self.hide_applied_change(i)
+    
+    def hide_applied_change(self, index):
+        widget_data = self.change_widgets.get(index)
+        if widget_data and widget_data['card']:
+            widget_data['card'].pack_forget()
+            del self.change_widgets[index]
+            self.update_count_label()
+    
+    def update_count_label(self):
+        remaining = len(self.change_widgets)
+        self.header_label.configure(text=f"📋 Cambios restantes: {remaining}")
+    
+    def update_status(self):
+        accepted = sum(1 for w in self.change_widgets.values() if w['accepted'])
+        total = len(self.change_widgets)
+        
+        pending = total - accepted
+        
+        self.status_label.configure(
+            text=f"✅ Aceptados: {accepted} | ⏳ Pendientes: {pending} | ❌ Rechazados: {total - accepted - pending}"
+        )
+    
+    def show_error(self, message):
+        error_win = ctk.CTkToplevel(self)
+        error_win.transient(self)
+        error_win.attributes("-topmost", True)
+        error_win.title("Error")
+        error_win.geometry("400x150")
+        
+        ctk.CTkLabel(
+            error_win,
+            text=f"❌ {message}",
+            font=ctk.CTkFont(size=14)
+        ).pack(expand=True)
+        
+        ctk.CTkButton(error_win, text="Aceptar", command=error_win.destroy).pack(pady=10)
+    
+    def show_info(self, message):
+        info_win = ctk.CTkToplevel(self)
+        info_win.transient(self)
+        info_win.attributes("-topmost", True)
+        info_win.title("Información")
+        info_win.geometry("300x100")
+        
+        ctk.CTkLabel(info_win, text=f"ℹ️ {message}").pack(expand=True)
+        ctk.CTkButton(info_win, text="Aceptar", command=info_win.destroy).pack(pady=5)
+    
+    def show_version_control(self):
+        VersionControlWindow(self, self.project_path)

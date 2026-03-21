@@ -1,9 +1,9 @@
 import os
 import re
 import html
-import xml.etree.ElementTree as ET
-from dataclasses import dataclass
 import difflib
+from dataclasses import dataclass
+from typing import List, Tuple
 
 
 def normalize_text(text: str) -> str:
@@ -63,18 +63,6 @@ class ChangeError:
 
 
 def replace_specific_instances(content: str, old_code: str, new_code: str, instances: str) -> str:
-    """
-    Reemplaza instancias específicas de old_code en content.
-    
-    Args:
-        content: Contenido del archivo
-        old_code: Código a buscar
-        new_code: Código de reemplazo
-        instances: "0"=primera, "1"=segunda, "0,2"=primera y tercera, "all"=todas
-    
-    Returns:
-        Contenido con los reemplazos realizados
-    """
     if instances == "all" or not instances:
         return content.replace(old_code, new_code)
     
@@ -152,7 +140,6 @@ def parse_xml_content(content, project_path):
         old_match = re.search(r'<CODIGO_ANTIGUO>\s*(.*?)\s*</CODIGO_ANTIGUO>', block, re.DOTALL)
         new_match = re.search(r'<CODIGO_NUEVO>\s*(.*?)\s*</CODIGO_NUEVO>', block, re.DOTALL)
         
-        # CODIGO_NUEVO es obligatorio (contiene el diff o el contenido nuevo)
         if not new_match:
             continue
         
@@ -161,7 +148,6 @@ def parse_xml_content(content, project_path):
         archivo = archivo_match.group(1).strip()
         accion = accion_match.group(1).strip().lower() if accion_match else ''
         
-        # Si no hay acción pero hay un diff en new_code, asumimos patch
         if not accion and ('diff --git' in new_code or ('--- a/' in new_code and '+++ b/' in new_code)):
             accion = 'patch'
         
@@ -185,118 +171,21 @@ def parse_xml_content(content, project_path):
     return changes, errors
 
 
-def get_original_code(change: Change) -> str:
-    if not os.path.exists(change.file_path):
-        return ""
-    try:
-        with open(change.file_path, 'r', encoding='utf-8') as f:
-            return f.read()
-    except Exception:
-        return ""
-
-
-def _apply_text_change_as_patch(change: Change, project_path: str) -> bool:
-    """
-    Convierte un cambio de texto (reemplazar, insertar) en un parche y lo aplica.
-    Esto unifica la lógica de modificación de contenido bajo el robusto `git apply`.
-    """
-    if not project_path:
-        print(f"[ERROR] Se requiere project_path para aplicar '{change.action}' como parche.")
-        return False
-    if not os.path.exists(change.file_path):
-        print(f"[DEBUG] ✗ ERROR: Archivo no encontrado para '{change.action}': {change.file_path}")
-        return False
-
-    print(f"[DEBUG apply_change] Procesando {change.action.upper()} como PATCH para {os.path.basename(change.file_path)}")
-    
-    with open(change.file_path, 'r', encoding='utf-8') as f:
-        original_content = f.read()
-
-    target_old_code = change.old_code
-    
-    if not target_old_code.strip():
-        print(f"[DEBUG] ⚠️ RECHAZADO: El código a buscar ('old_code') está vacío o solo contiene espacios.")
-        return False
-
-    # --- BÚSQUEDA FLEXIBLE ---
-    # Si la coincidencia exacta falla, intentamos normalizar
-    if target_old_code not in original_content:
-        print(f"[DEBUG] No hay coincidencia exacta. Intentando búsqueda flexible...")
-        
-        # 1. Intentar normalización de saltos de línea (Windows vs Unix)
-        if target_old_code.replace('\n', '\r\n') in original_content:
-            target_old_code = target_old_code.replace('\n', '\r\n')
-            print(f"[DEBUG] -> Coincidencia encontrada ajustando saltos de línea (LF -> CRLF).")
-        elif target_old_code.replace('\r\n', '\n') in original_content:
-            target_old_code = target_old_code.replace('\r\n', '\n')
-            print(f"[DEBUG] -> Coincidencia encontrada ajustando saltos de línea (CRLF -> LF).")
-        else:
-            # 2. Intentar Regex ignorando espacios múltiples (fallback final)
-            parts = change.old_code.split()
-            if parts:
-                # Crear regex: palabra + espacio(s) + palabra...
-                pattern = r'\s+'.join([re.escape(p) for p in parts])
-                match = re.search(pattern, original_content)
-                if match:
-                    target_old_code = match.group(0)
-                    print(f"[DEBUG] -> Coincidencia encontrada ignorando diferencias de espacios/indentación.")
-                else:
-                    print(f"[DEBUG] ✗ ERROR: Código no encontrado ni con búsqueda flexible.")
-                    return False
-            else:
-                return False
-
-    # Generar nuevo contenido basado en la acción
-    # Usamos target_old_code que es el texto REAL que existe en el archivo
-    if change.action == 'reemplazar':
-        new_content = replace_specific_instances(original_content, target_old_code, change.new_code, change.instances)
-    elif change.action == 'insertar':
-        new_content = original_content.replace(target_old_code, target_old_code + "\n" + change.new_code, 1)
-    else:
-        return False # No debería ocurrir
-
-    if original_content == new_content:
-        print("[DEBUG] ! AVISO: La operación no resultó en cambios. Se considera exitoso.")
-        change.applied = True
-        return True
-
-    # Generar y aplicar el parche
-    from utils.git_manager import apply_git_patch
-    rel_path = os.path.relpath(change.file_path, project_path).replace('\\', '/')
-    
-    diff = difflib.unified_diff(
-        original_content.splitlines(keepends=True),
-        new_content.splitlines(keepends=True),
-        fromfile=f'a/{rel_path}',
-        tofile=f'b/{rel_path}',
-    )
-    patch_content = "".join(diff)
-
-    print(f"[DEBUG] '{change.action}' convertido a parche. Aplicando con git apply...")
-    success, msg = apply_git_patch(project_path, patch_content)
-    change.applied = success
-    return success
-
-
 def apply_change(change: Change, project_path: str = None) -> bool:
     try:
-        # Lógica para aplicar parches (Diffs de Git)
+        from services.git_service import apply_git_patch
+        
         if change.action == 'patch' or change.action == 'parche':
             if not project_path:
                 print("[ERROR] Se requiere project_path para aplicar parches")
                 return False
             
-            # Importación local para evitar ciclos de importación
-            from utils.git_manager import apply_git_patch
-            
-            # El contenido del diff está en change.new_code
             success, msg = apply_git_patch(project_path, change.new_code)
             if not success:
                 print(f"[DEBUG] ✗ git apply falló:\n{msg}")
             change.applied = success
             return success
 
-        # Unificamos reemplazo e inserción para que usen parches internamente
         if change.action in ['reemplazar', 'insertar']:
             return _apply_text_change_as_patch(change, project_path)
 
@@ -336,6 +225,78 @@ def apply_change(change: Change, project_path: str = None) -> bool:
         return False
 
 
+def _apply_text_change_as_patch(change: Change, project_path: str) -> bool:
+    from services.git_service import apply_git_patch
+    
+    if not project_path:
+        print(f"[ERROR] Se requiere project_path para aplicar '{change.action}' como parche.")
+        return False
+    if not os.path.exists(change.file_path):
+        print(f"[DEBUG] ✗ ERROR: Archivo no encontrado para '{change.action}': {change.file_path}")
+        return False
+
+    print(f"[DEBUG apply_change] Procesando {change.action.upper()} como PATCH para {os.path.basename(change.file_path)}")
+    
+    with open(change.file_path, 'r', encoding='utf-8') as f:
+        original_content = f.read()
+
+    target_old_code = change.old_code
+    
+    if not target_old_code.strip():
+        print(f"[DEBUG] ⚠️ RECHAZADO: El código a buscar ('old_code') está vacío o solo contiene espacios.")
+        return False
+
+    if target_old_code not in original_content:
+        print(f"[DEBUG] No hay coincidencia exacta. Intentando búsqueda flexible...")
+        
+        if target_old_code.replace('\n', '\r\n') in original_content:
+            target_old_code = target_old_code.replace('\n', '\r\n')
+            print(f"[DEBUG] -> Coincidencia encontrada ajustando saltos de línea (LF -> CRLF).")
+        elif target_old_code.replace('\r\n', '\n') in original_content:
+            target_old_code = target_old_code.replace('\r\n', '\n')
+            print(f"[DEBUG] -> Coincidencia encontrada ajustando saltos de línea (CRLF -> LF).")
+        else:
+            parts = change.old_code.split()
+            if parts:
+                pattern = r'\s+'.join([re.escape(p) for p in parts])
+                match = re.search(pattern, original_content)
+                if match:
+                    target_old_code = match.group(0)
+                    print(f"[DEBUG] -> Coincidencia encontrada ignorando diferencias de espacios/indentación.")
+                else:
+                    print(f"[DEBUG] ✗ ERROR: Código no encontrado ni con búsqueda flexible.")
+                    return False
+            else:
+                return False
+
+    if change.action == 'reemplazar':
+        new_content = replace_specific_instances(original_content, target_old_code, change.new_code, change.instances)
+    elif change.action == 'insertar':
+        new_content = original_content.replace(target_old_code, target_old_code + "\n" + change.new_code, 1)
+    else:
+        return False
+
+    if original_content == new_content:
+        print("[DEBUG] ! AVISO: La operación no resultó en cambios. Se considera exitoso.")
+        change.applied = True
+        return True
+
+    rel_path = os.path.relpath(change.file_path, project_path).replace('\\', '/')
+    
+    diff = difflib.unified_diff(
+        original_content.splitlines(keepends=True),
+        new_content.splitlines(keepends=True),
+        fromfile=f'a/{rel_path}',
+        tofile=f'b/{rel_path}',
+    )
+    patch_content = "".join(diff)
+
+    print(f"[DEBUG] '{change.action}' convertido a parche. Aplicando con git apply...")
+    success, msg = apply_git_patch(project_path, patch_content)
+    change.applied = success
+    return success
+
+
 def revert_change(change: Change, original_content: str) -> bool:
     if not os.path.exists(change.file_path):
         return False
@@ -349,7 +310,30 @@ def revert_change(change: Change, original_content: str) -> bool:
 
 
 def get_file_diff(change: Change) -> tuple:
-    """Retorna (old_lines, new_lines) para mostrar en el UI."""
     old_lines = change.old_code.strip().split('\n') if change.old_code else []
     new_lines = change.new_code.strip().split('\n') if change.new_code else []
     return old_lines, new_lines
+
+
+def save_change(project_path: str, rel_path: str, old_code: str, new_code: str):
+    """Guarda un cambio en el archivo _changes.txt"""
+    changes_file = os.path.join(project_path, "_changes", "_changes.txt")
+    
+    change_block = f"""
+<CAMBIOS>
+  <ARCHIVO>{rel_path}</ARCHIVO>
+  <ACCION>reemplazar</ACCION>
+  <CODIGO_ANTIGUO>
+{old_code}
+  </CODIGO_ANTIGUO>
+  <CODIGO_NUEVO>
+{new_code}
+  </CODIGO_NUEVO>
+</CAMBIOS>
+"""
+    
+    try:
+        with open(changes_file, 'a', encoding='utf-8') as f:
+            f.write(change_block)
+    except Exception as e:
+        print(f"Error al guardar cambio: {e}")

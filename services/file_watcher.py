@@ -1,8 +1,7 @@
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import threading
-import os
-import subprocess
+from services.git_service import run_git_command
 
 
 class ProjectWatcher:
@@ -13,30 +12,17 @@ class ProjectWatcher:
         self.ignorar = False
         self.observer = None
         self.lock = threading.Lock()
-        self.ignore_patterns = {'.apply_history', '__pycache__', '.git', '.pyc', '.pyo', '.DS_Store'}
+        self.ignore_patterns = {'.apply_history', '__pycache__', '.git', '.pyc', '.pyo', '.DS_Store', '.gitignore', '_changes.txt'}
         self.last_commit_hash = self._get_current_commit_hash()
     
-    def _run_git_command(self, *args):
-        try:
-            result = subprocess.run(
-                ['git'] + list(args),
-                cwd=self.path,
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            return result.stdout.strip(), result.returncode
-        except Exception:
-            return "", 1
-    
     def _get_current_commit_hash(self):
-        stdout, code = self._run_git_command('rev-parse', 'HEAD')
+        stdout, _, code = run_git_command(self.path, 'rev-parse', 'HEAD')
         if code == 0 and stdout:
             return stdout
         return ""
     
     def _get_files_in_last_commit(self):
-        stdout, code = self._run_git_command('diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD')
+        stdout, _, code = run_git_command(self.path, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD')
         if code == 0 and stdout:
             return [f.strip() for f in stdout.split('\n') if f.strip()]
         return []

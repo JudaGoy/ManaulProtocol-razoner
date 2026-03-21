@@ -2,12 +2,11 @@ import subprocess
 import os
 import tempfile
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict
 
 
 def run_git_command(project_path: str, *args) -> tuple:
     try:
-        # Evitar que git pida credenciales interactivamente y bloquear el proceso
         env = os.environ.copy()
         env['GIT_TERMINAL_PROMPT'] = '0'
         
@@ -19,7 +18,7 @@ def run_git_command(project_path: str, *args) -> tuple:
             encoding='utf-8',
             errors='replace',
             env=env,
-            timeout=10 # Timeout de 10 segundos para evitar congelamientos
+            timeout=10
         )
         return result.stdout.strip(), result.stderr.strip(), result.returncode
     except FileNotFoundError:
@@ -66,7 +65,6 @@ def get_status(project_path: str) -> Dict[str, List[str]]:
             worktree_status = line[1]
             filepath = line[3:] if len(line) > 3 else line[2:].strip()
             
-            # Git status --porcelain pone comillas en rutas con espacios
             if filepath.startswith('"') and filepath.endswith('"'):
                 filepath = filepath[1:-1]
             
@@ -87,7 +85,6 @@ def get_status(project_path: str) -> Dict[str, List[str]]:
 
 
 def get_history(project_path: str, limit: int = 50) -> List[Dict[str, str]]:
-    # Usamos un separador poco común para evitar colisiones con el mensaje del commit
     separator = "||||"
     stdout, stderr, code = run_git_command(
         project_path, 
@@ -304,20 +301,12 @@ def get_uncommitted_files(project_path: str) -> List[str]:
 
 
 def apply_git_patch(project_path: str, patch_content: str) -> tuple[bool, str]:
-    """
-    Aplica un parche (unified diff) usando git apply.
-    Es más robusto que reemplazar texto porque usa contexto.
-    """
     tmp_path = ""
     try:
-        # Crear archivo temporal con el parche
         with tempfile.NamedTemporaryFile(mode='w', suffix='.patch', delete=False, encoding='utf-8') as tmp:
             tmp.write(patch_content)
             tmp_path = tmp.name
         
-        # --ignore-space-change: Ignora cambios en cantidad de espacios en blanco
-        # --ignore-whitespace: Ignora espacios al final de línea
-        # --verbose: Para tener output
         stdout, stderr, code = run_git_command(project_path, "apply", "--ignore-space-change", "--ignore-whitespace", "--verbose", tmp_path)
         
         if os.path.exists(tmp_path):
@@ -333,26 +322,19 @@ def apply_git_patch(project_path: str, patch_content: str) -> tuple[bool, str]:
             os.remove(tmp_path)
         return False, f"Excepción aplicando parche: {str(e)}"
 
+
 def apply_patch_to_text(original_text: str, patch_content: str) -> str:
-    """
-    Aplica un parche a una cadena de texto usando git apply sobre archivos temporales.
-    Util para reconstruir historiales en memoria.
-    """
     import tempfile
     
     with tempfile.TemporaryDirectory() as temp_dir:
-        # Crear archivo original temporal
         temp_file = os.path.join(temp_dir, "temp_file")
         with open(temp_file, 'w', encoding='utf-8') as f:
             f.write(original_text)
             
-        # Aplicar el parche
         success, msg = apply_git_patch(temp_dir, patch_content)
         
         if success:
-            # Leer resultado
             with open(temp_file, 'r', encoding='utf-8') as f:
                 return f.read()
         else:
-            # Si falla, devolvemos el original (mejor que romper)
             return original_text

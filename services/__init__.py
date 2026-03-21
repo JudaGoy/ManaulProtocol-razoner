@@ -1,0 +1,40 @@
+from .git_service import (
+    run_git_command,
+    is_git_repo,
+    init_git,
+    get_status,
+    get_history,
+    commit,
+    get_default_commit_message,
+    restore,
+    get_commit_diff,
+    get_file_diff,
+    get_current_branch,
+    get_commit_count,
+    get_file_at_commit,
+    get_current_file_content,
+    revert_file,
+    discard_all_changes,
+    get_commit_files,
+    get_modified_files_since_commit,
+    get_uncommitted_files,
+    apply_git_patch,
+    apply_patch_to_text,
+)
+from .history_service import (
+    apply_change_with_history,
+    get_files_with_history,
+    clear_apply_history,
+    clear_all_apply_history,
+    get_history_snapshots,
+    clear_history_for_files,
+)
+from .file_watcher import ProjectWatcher
+from .project_service import (
+    initialize_project,
+    create_changes_directory,
+    create_changes_file,
+    get_changes_file_path,
+    ensure_project_structure,
+    update_gitignore,
+)
