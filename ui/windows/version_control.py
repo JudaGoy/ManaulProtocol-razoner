@@ -109,7 +109,7 @@ class VersionControlWindow(ctk.CTkToplevel):
         
         # Contenedor para los botones de acción del commit
         action_frame = ctk.CTkFrame(commit_section, fg_color="transparent")
-        action_frame.grid(row=2, column=0, sticky="e", pady=(0, 5))
+        action_frame.grid(row=2, column=0, pady=(5, 10))
         
         ctk.CTkButton(
             action_frame,
@@ -118,7 +118,7 @@ class VersionControlWindow(ctk.CTkToplevel):
             fg_color="#d63031",
             hover_color="#b71c1c",
             height=30
-        ).pack(side="left", padx=(0, 10))
+        ).pack(side="left", padx=5)
         
         ctk.CTkButton(
             action_frame,
@@ -126,7 +126,7 @@ class VersionControlWindow(ctk.CTkToplevel):
             command=self.show_commit_dialog,
             fg_color="#6f42c1",
             height=30
-        ).pack(side="left")
+        ).pack(side="left", padx=5)
         
         files_section = ctk.CTkFrame(left_panel)
         files_section.grid(row=2, column=0, padx=5, pady=(10, 5), sticky="ew")
