@@ -7,6 +7,9 @@ from typing import List, Dict, Optional, Tuple
 from utils.git_manager import apply_patch_to_text
 
 
+# Separador único para almacenar múltiples versiones en un solo archivo de historial.
+HISTORY_SEPARATOR = "\n---_APPLY_HISTORY_VERSION_SEPARATOR_---\n"
+
 def normalize_history_text(text: str) -> str:
     """Decodifica entidades XML y caracteres especiales del historial."""
     text = html.unescape(text)
@@ -28,192 +31,37 @@ def get_history_file_path(project_path: str, filename: str) -> str:
     return os.path.join(changes_dir, f"_{safe_filename}.txt")
 
 
-def save_change(project_path: str, filename: str, old_code: str, new_code: str, action: str = "reemplazar") -> bool:
-    """Guarda un cambio individual (old_code y new_code) en el historial."""
-    if old_code == new_code:
-        return True
-    
+def _save_new_snapshot(project_path: str, filename: str, new_content: str) -> bool:
+    """
+    Añade una nueva 'snapshot' (versión completa) del archivo al final de su historial.
+    """
     history_file = get_history_file_path(project_path, filename)
-    
-    changes = []
-    
-    if os.path.exists(history_file):
-        try:
-            tree = ET.parse(history_file)
-            root = tree.getroot()
-            for change_elem in root.findall("change"):
-                date = change_elem.find("date")
-                old = change_elem.find("old_code")
-                new = change_elem.find("new_code")
-                act = change_elem.find("action")
-                if date is not None and old is not None and new is not None:
-                    changes.append({
-                        "date": date.text or "",
-                        "old_code": old.text or "",
-                        "new_code": new.text or "",
-                        "action": act.text if act is not None else "reemplazar"
-                    })
-        except Exception:
-            changes = []
-    
-    new_change = {
-        "date": datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
-        "old_code": old_code,
-        "new_code": new_code,
-        "action": action
-    }
-    changes.append(new_change)
-    
-    root = ET.Element("history")
-    for change in changes:
-        change_elem = ET.SubElement(root, "change")
-        date_elem = ET.SubElement(change_elem, "date")
-        date_elem.text = change["date"]
-        old_elem = ET.SubElement(change_elem, "old_code")
-        old_elem.text = change["old_code"]
-        new_elem = ET.SubElement(change_elem, "new_code")
-        new_elem.text = change["new_code"]
-        act_elem = ET.SubElement(change_elem, "action")
-        act_elem.text = change.get("action", "reemplazar")
-    
-    tree = ET.ElementTree(root)
-    tree.write(history_file, encoding="utf-8", xml_declaration=True)
-    
+    try:
+        with open(history_file, 'a', encoding='utf-8') as f:
+            # Si el archivo no está vacío, añade un separador antes de la nueva versión.
+            if f.tell() > 0:
+                f.write(HISTORY_SEPARATOR)
+            f.write(new_content)
+    except IOError as e:
+        print(f"Error al guardar snapshot: {e}")
+        return False
     return True
 
 
-def get_apply_history(project_path: str, filename: str) -> List[Dict[str, str]]:
-    """Obtiene el historial de cambios (old_code y new_code)."""
+def get_history_snapshots(project_path: str, filename: str) -> List[str]:
+    """
+    Obtiene todas las 'snapshots' (versiones completas) de un archivo desde su historial.
+    """
     history_file = get_history_file_path(project_path, filename)
-    
     if not os.path.exists(history_file):
         return []
-    
-    changes = []
-    
     try:
-        tree = ET.parse(history_file)
-        root = tree.getroot()
-        for change_elem in root.findall("change"):
-            date = change_elem.find("date")
-            old = change_elem.find("old_code")
-            new = change_elem.find("new_code")
-            act = change_elem.find("action")
-            if date is not None and old is not None and new is not None:
-                changes.append({
-                    "date": date.text or "",
-                    "old_code": normalize_history_text(old.text or ""),
-                    "new_code": normalize_history_text(new.text or ""),
-                    "action": act.text if act is not None else "reemplazar"
-                })
-    except Exception:
+        with open(history_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+        # Devuelve una lista de strings, donde cada string es una versión completa del archivo.
+        return content.split(HISTORY_SEPARATOR)
+    except (IOError, FileNotFoundError):
         return []
-    
-    return changes
-
-
-def rebuild_version(original_code: str, changes: List[Dict[str, str]]) -> str:
-    """
-    Reconstruye una versión del código aplicando cambios secuenciales.
-    
-    Args:
-        original_code: Código base del último commit de git
-        changes: Lista de cambios {old_code, new_code} en orden
-    
-    Returns:
-        Código reconstruido después de aplicar todos los cambios
-    """
-    if not changes:
-        return original_code
-    
-    result = original_code
-    
-    for change in changes:
-        old_code = change.get("old_code", "")
-        new_code = change.get("new_code", "")
-        action = change.get("action", "reemplazar")
-        
-        if action in ['patch', 'parche']:
-            result = apply_patch_to_text(result, new_code)
-            continue
-        
-        if not old_code:
-            continue
-        
-        # Búsqueda exacta. No usamos strip() para respetar la indentación.
-        if old_code in result:
-            result = result.replace(old_code, new_code, 1)
-    
-    return result
-
-
-def rebuild_version_to_index(original_code: str, changes: List[Dict[str, str]], to_index: int) -> str:
-    """
-    Reconstruye una versión del código hasta un índice específico.
-    
-    Args:
-        original_code: Código base del último commit de git
-        changes: Lista de cambios {old_code, new_code} en orden
-        to_index: Índice hasta el cual reconstruir (inclusive)
-    
-    Returns:
-        Código reconstruido después de aplicar cambios[0..to_index]
-    """
-    if not changes or to_index < 0:
-        return original_code
-    
-    result = original_code
-    limit = min(to_index + 1, len(changes))
-    
-    for i in range(limit):
-        change = changes[i]
-        old_code = change.get("old_code", "")
-        new_code = change.get("new_code", "")
-        action = change.get("action", "reemplazar")
-        
-        if action in ['patch', 'parche']:
-            result = apply_patch_to_text(result, new_code)
-            continue
-        
-        if not old_code:
-            continue
-        
-        # Búsqueda exacta sin strip() para mantener consistencia.
-        if old_code in result:
-            result = result.replace(old_code, new_code, 1)
-    
-    return result
-
-
-def rebuild_version_from_index(original_code: str, changes: List[Dict[str, str]], from_index: int) -> str:
-    """
-    Reconstruye una versión del código desde un índice específico.
-    
-    Args:
-        original_code: Código base del último commit de git
-        changes: Lista de cambios {old_code, new_code} en orden
-        from_index: Índice desde el cual reconstruir
-    
-    Returns:
-        Código reconstruido después de aplicar cambios[from_index..]
-    """
-    if not changes or from_index >= len(changes):
-        return original_code
-    
-    current_version = rebuild_version_to_index(original_code, changes, from_index - 1) if from_index > 0 else original_code
-    
-    for i in range(from_index, len(changes)):
-        change = changes[i]
-        old_code = change.get("old_code", "")
-        new_code = change.get("new_code", "")
-        
-        if not old_code:
-            continue
-        
-        if old_code in current_version:
-            current_version = current_version.replace(old_code, new_code, 1)
-    
-    return current_version
 
 
 def find_old_code_in_version(old_code: str, version_code: str) -> bool:
@@ -309,241 +157,85 @@ def apply_change_with_history(project_path: str, change, original_code: str = No
     """
     from core.change_parser import apply_change as core_apply_change
     
+    # Obtener la ruta relativa para usarla como clave en el historial.
     rel_path = os.path.relpath(change.file_path, project_path)
-    changes = get_apply_history(project_path, rel_path)
     
-    current_file_code = ""
-    if os.path.exists(change.file_path):
+    # Obtener todas las snapshots del historial.
+    snapshots = get_history_snapshots(project_path, rel_path)
+    
+    print(f"[DEBUG apply_change_with_history] archivo={rel_path} accion={change.action} historial={len(snapshots)}")
+    
+    # Determinar sobre qué versión base vamos a trabajar.
+    base_code = original_code
+    if snapshots:
+        # Si hay historial, la base es la última snapshot guardada.
+        base_code = snapshots[-1]
+    
+    # Sincronizar el archivo en disco con nuestra versión base para una aplicación limpia.
+    try:
+        with open(change.file_path, 'w', encoding='utf-8') as f:
+            f.write(base_code)
+    except IOError as e:
+        return False, f"No se pudo escribir en el archivo para aplicar el cambio: {e}"
+
+    # Intentar aplicar el cambio usando el core_apply_change (que usa parches).
+    print(f"[DEBUG] Intentando aplicar cambio sobre la versión base (Historial: {len(snapshots)})...")
+    success = core_apply_change(change, project_path)
+    
+    if success:
+        print("[DEBUG] ✓ Cambio aplicado con éxito.")
+        # Leer el nuevo contenido del archivo tras el cambio.
+        new_content = ""
         try:
             with open(change.file_path, 'r', encoding='utf-8') as f:
-                current_file_code = f.read()
-        except:
-            pass
-    
-    if original_code is None:
-        original_code = current_file_code
-    
-    if not changes:
-        print(f"[DEBUG] Sin historial previo para '{rel_path}'.")
+                new_content = f.read()
+        except IOError:
+            return False, "El cambio se aplicó pero no se pudo leer el resultado."
         
-        # Caso especial para PATCH: No tiene old_code, intentamos aplicar directamente
-        if change.action in ['patch', 'parche']:
-            print(f"[DEBUG] Aplicando modo PATCH (git apply)...")
-            success = core_apply_change(change, project_path)
-            if success:
-                save_change(project_path, rel_path, change.old_code, change.new_code, change.action)
-                print(f"[DEBUG] ✓ Parche aplicado sobre versión actual.")
-                return True, ""
-            
-            print(f"[DEBUG] ✗ Parche falló en local. Intentando sobre HEAD...")
-            
-            # Restaurar desde HEAD para intentar aplicar el parche en limpio
-            parent_dir = os.path.dirname(change.file_path)
-            if parent_dir and not os.path.exists(parent_dir):
-                os.makedirs(parent_dir, exist_ok=True)
+        # Guardar la nueva versión como una snapshot en el historial.
+        _save_new_snapshot(project_path, rel_path, new_content)
+        return True, ""
+    else:
+        print("[DEBUG] ✗ Falló la aplicación del cambio.")
+        # Si falló, restaurar el archivo a como estaba antes del intento.
+        try:
+            with open(change.file_path, 'w', encoding='utf-8') as f:
+                f.write(base_code)
+        except IOError:
+            pass # No mucho que hacer si la restauración también falla.
+        
+        # --- Lógica de Fallback: "Viaje en el Tiempo" ---
+        # Si la aplicación falló, quizás el cambio era para una versión más antigua.
+        # Buscamos hacia atrás en el historial.
+        print("[DEBUG] Buscando en snapshots anteriores...")
+        for i in range(len(snapshots) - 2, -1, -1):
+            if find_old_code_in_version(change.old_code, snapshots[i]):
+                print(f"[DEBUG] -> Código encontrado en snapshot #{i}. Esto invalidará cambios posteriores.")
+                # Encontramos una versión antigua que contiene el código.
+                # Revertimos el archivo a esa versión y aplicamos el cambio.
+                # ADVERTENCIA: Esto descarta los cambios que se hicieron después de esa snapshot.
+                with open(change.file_path, 'w', encoding='utf-8') as f:
+                    f.write(snapshots[i])
                 
-            with open(change.file_path, 'w', encoding='utf-8') as f:
-                f.write(original_code)
-            
-            success = core_apply_change(change, project_path)
-            
-            if success:
-                save_change(project_path, rel_path, change.old_code, change.new_code, change.action)
-                print(f"[DEBUG] ✓ Parche aplicado sobre HEAD.")
-                return True, ""
-            
-            print(f"[DEBUG] ✗ Parche falló también sobre HEAD. Restaurando contenido usuario.")
-            if current_file_code:
-                with open(change.file_path, 'w', encoding='utf-8') as f:
-                    f.write(current_file_code)
-            return False, "El parche no se pudo aplicar (git apply falló). Revisa la consola para ver el error de git."
+                success_retry = core_apply_change(change, project_path)
+                if success_retry:
+                    new_content = ""
+                    with open(change.file_path, 'r', encoding='utf-8') as f:
+                        new_content = f.read()
+                    
+                    # Borramos el historial posterior al punto de bifurcación.
+                    clear_apply_history(project_path, rel_path)
+                    for j in range(i + 1):
+                        _save_new_snapshot(project_path, rel_path, snapshots[j])
+                    _save_new_snapshot(project_path, rel_path, new_content)
+                    
+                    print("[DEBUG] ✓ Cambio aplicado en una versión anterior del historial.")
+                    return True, ""
 
-        stripped_old = change.old_code.strip()
-        if not stripped_old:
-            print(f"[DEBUG] ⚠️ El código antiguo es inválido (vacío o solo espacios). Se aborta la búsqueda.")
-            print(f"[DEBUG] Raw: {repr(change.old_code)}")
-            return False, "El código a reemplazar está vacío o contiene solo espacios."
-
-        # 1. Intentar aplicar sobre el archivo actual (preservando cambios locales del usuario)
-        # Esto es lo preferible si la IA generó el código basándose en el estado actual del archivo
-        if stripped_old in current_file_code:
-            print(f"[DEBUG] -> El código existe en el archivo actual. Aplicando directamente...")
-            success = core_apply_change(change, project_path)
-            
-            if success:
-                save_change(project_path, rel_path, change.old_code, change.new_code, change.action)
-                print(f"[DEBUG] ✓ Cambio aplicado sobre la versión actual del usuario.")
-                return True, ""
-            else:
-                print(f"[DEBUG] -> Falló la aplicación directa.")
-        else:
-             print(f"[DEBUG] -> El código NO se encontró en el archivo actual.")
-
-        # 2. Si falla lo anterior, restaurar desde HEAD (comportamiento fallback)
-        print(f"[DEBUG] Intentando restaurar desde git HEAD para aplicar...")
-        
-        parent_dir = os.path.dirname(change.file_path)
-        if parent_dir and not os.path.exists(parent_dir):
-            os.makedirs(parent_dir, exist_ok=True)
-            
+        # Si no se encontró en ninguna parte, restauramos y fallamos.
         with open(change.file_path, 'w', encoding='utf-8') as f:
-            f.write(original_code)
-        
-        success = core_apply_change(change, project_path)
-        
-        if success:
-            save_change(project_path, rel_path, change.old_code, change.new_code, change.action)
-            print(f"[DEBUG] ✓ Cambio aplicado exitosamente a la versión de HEAD.")
-            return True, ""
-        
-        print(f"[DEBUG] ✗ Falló también sobre HEAD. Restaurando contenido usuario.")
-        if current_file_code:
-            with open(change.file_path, 'w', encoding='utf-8') as f:
-                f.write(current_file_code)
-
-        return False, "El cambio no se pudo aplicar ni en la versión actual ni en la versión original (git)."
-
-    last_version_code = rebuild_version(original_code, changes)
-    
-    print(f"[DEBUG apply_change_with_history] archivo={rel_path} accion={change.action} historial={len(changes)}")
-    
-    if not change.old_code:
-        success = core_apply_change(change, project_path)
-        if success:
-            save_change(project_path, rel_path, "", change.new_code, change.action)
-        return success, ""
-    
-    # Si es un parche, no intentamos hacer "Time Travel" complejo, confiamos en git apply
-    if change.action in ['patch', 'parche']:
-        success = core_apply_change(change, project_path)
-        if success:
-            save_change(project_path, rel_path, change.old_code, change.new_code, change.action)
-            return True, ""
-        return False, "Falló la aplicación del parche"
-
-    print(f"[DEBUG] Verificando si old_code existe en last_version_code...")
-    if find_old_code_in_version(change.old_code, last_version_code):
-        print(f"[DEBUG] -> Encontrado en last_version_code. Aplicando...")
-        success = core_apply_change(change, project_path)
-        if success:
-            save_change(project_path, rel_path, change.old_code, change.new_code, change.action)
-            return True, ""
-        else:
-            print(f"[DEBUG] -> Falló la aplicación en el archivo físico. Intentando sincronizar archivo con historial...")
-            # Si el historial dice que tenemos el código, pero el archivo físico no,
-            # significa que el archivo físico está desincronizado (posiblemente editado externamente o corrupto por saltos de linea).
-            # Forzamos que el archivo físico sea igual a last_version_code.
-            with open(change.file_path, 'w', encoding='utf-8') as f:
-                f.write(last_version_code)
-            
-            success_retry = core_apply_change(change, project_path)
-            if success_retry:
-                save_change(project_path, rel_path, change.old_code, change.new_code, change.action)
-                print(f"[DEBUG] ✓ Cambio aplicado tras sincronizar archivo con historial.")
-                return True, ""
-            else:
-                print(f"[DEBUG] ✗ Falló incluso tras forzar la versión del historial.")
-                # Restauramos backup por seguridad si es necesario, aunque aquí last_version_code es la "verdad" del sistema
-                return False, "Error de sincronización: El historial contiene el código pero no se pudo aplicar al archivo."
-    
-    print(f"[DEBUG] No encontrado en last_version_code. Buscando en historial histórico...")
-    for i, ch in enumerate(changes):
-        version_at_i = rebuild_version_to_index(original_code, changes, i)
-        found = find_old_code_in_version(change.old_code, version_at_i)
-        
-        if found:
-            backup_code = last_version_code
-            reverted_code = rebuild_version_to_index(original_code, changes, i - 1) if i > 0 else original_code
-            with open(change.file_path, 'w', encoding='utf-8') as f:
-                f.write(reverted_code)
-            
-            success = core_apply_change(change, project_path)
-            
-            if not success:
-                with open(change.file_path, 'w', encoding='utf-8') as f:
-                    f.write(backup_code)
-                return False, "Error al aplicar el cambio de IA."
-            
-            save_change(project_path, rel_path, change.old_code, change.new_code, change.action)
-            
-            return True, ""
-    
-    # FALLBACK: Buscar en TODAS las versiones reconstruidas del historial
-    print(f"[DEBUG] === FALLBACK DEBUG ===")
-    print(f"[DEBUG] Cambios en historial: {len(changes)}")
-    print(f"[DEBUG] old_code a buscar (primeros 100 chars):")
-    print(repr(change.old_code[:100]))
-    
-    # Mostrar los cambios del historial
-    for idx, ch in enumerate(changes):
-        print(f"[DEBUG] Historial #{idx}:")
-        print(f"[DEBUG]   old_code (primeros 80): {repr(ch.get('old_code', '')[:80])}")
-        print(f"[DEBUG]   new_code (primeros 80): {repr(ch.get('new_code', '')[:80])}")
-    
-    # Buscar en cada versión reconstruida (desde la más reciente hasta la original)
-    found_in_version_index = None
-    for i in range(len(changes) - 1, -1, -1):
-        version_at_i = rebuild_version_to_index(original_code, changes, i)
-        contains = find_old_code_in_version(change.old_code, version_at_i)
-        print(f"[DEBUG] Versión {i} contiene código: {contains}")
-        if contains:
-            found_in_version_index = i
-            print(f"[DEBUG] Código encontrado en versión {i}")
-            break
-    
-    if found_in_version_index is not None:
-        # Encontrar cuál cambio modificó este código
-        conflicting_change_index = None
-        for i in range(found_in_version_index, len(changes)):
-            ch = changes[i]
-            if find_old_code_in_version(change.old_code, ch.get("new_code", "")):
-                conflicting_change_index = i
-                break
-        
-        if conflicting_change_index is not None:
-            # Revertir al estado justo antes del cambio conflictivo
-            reverted_code = rebuild_version_to_index(original_code, changes, conflicting_change_index - 1) if conflicting_change_index > 0 else original_code
-            with open(change.file_path, 'w', encoding='utf-8') as f:
-                f.write(reverted_code)
-            
-            success = core_apply_change(change, project_path)
-            
-            if not success:
-                with open(change.file_path, 'w', encoding='utf-8') as f:
-                    f.write(last_version_code)
-                return False, "Error al aplicar el cambio después de revertir."
-            
-            save_change(project_path, rel_path, change.old_code, change.new_code, change.action)
-            print(f"[DEBUG] ✓ Cambio aplicado (FALLBACK exitoso)")
-            return True, ""
-    
-    # Si no se encontró en ninguna versión, buscar en git HEAD original
-    print(f"[DEBUG] Verificando en original_code (Git HEAD)...")
-    if find_old_code_in_version(change.old_code, original_code):
-        print(f"[DEBUG] -> Encontrado en original_code.")
-        if change.old_code.strip() in current_file_code:
-            print(f"[DEBUG] -> También está en el archivo actual en disco. Aplicando directo...")
-            success = core_apply_change(change, project_path)
-            if success:
-                save_change(project_path, rel_path, change.old_code, change.new_code, change.action)
-                return True, ""
-        
-        print(f"[DEBUG] -> No está en archivo actual. Restaurando a original_code y aplicando...")
-        with open(change.file_path, 'w', encoding='utf-8') as f:
-            f.write(original_code)
-        
-        success = core_apply_change(change, project_path)
-        
-        if success:
-            for ch in changes:
-                save_change(project_path, rel_path, ch.get("old_code", ""), ch.get("new_code", ""), ch.get("action", "reemplazar"))
-            save_change(project_path, rel_path, change.old_code, change.new_code, change.action)
-            return True, ""
-        else:
-            print(f"[DEBUG] -> Falló core_apply_change sobre original_code.")
-    
-    print(f"[DEBUG] ✗ ERROR: Código no encontrado en ninguna versión")
-    return False, "El código no existe en el archivo actual ni en el historial."
+            f.write(base_code)
+        return False, "El código a modificar no se encontró en la versión actual ni en el historial."
 
 
 def clear_history_for_files(project_path: str, files: List[str]) -> None:

@@ -20,6 +20,8 @@ class AICodeEditor(ctk.CTk):
         self.project_path = None
         self.changes_path = None
         self.selected_files = {}
+        self.item_sizes = {}
+        self.folder_selected_sizes = {}
         self.file_tree_items = {}
         self.current_mode = "build"  # "plan" or "build"
         
@@ -110,24 +112,6 @@ class AICodeEditor(ctk.CTk):
         )
         self.btn_apply.pack(pady=10, padx=20, fill="x")
         
-        separator2 = ctk.CTkFrame(self.sidebar, height=2)
-        separator2.pack(pady=20, padx=20, fill="x")
-        
-        self.btn_check_all = ctk.CTkButton(
-            self.sidebar,
-            text="Seleccionar Todos",
-            command=self.check_all_files,
-            height=35
-        )
-        self.btn_check_all.pack(pady=5, padx=20, fill="x")
-        
-        self.btn_uncheck_all = ctk.CTkButton(
-            self.sidebar,
-            text="Deseleccionar Todos",
-            command=self.uncheck_all_files,
-            height=35
-        )
-        self.btn_uncheck_all.pack(pady=5, padx=20, fill="x")
     
     def setup_main_content(self):
         self.main_content.grid_columnconfigure(0, weight=1)
@@ -206,6 +190,9 @@ class AICodeEditor(ctk.CTk):
         
         self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
         self.tree.bind("<Button-1>", self.on_tree_click)
+        
+        # Configurar etiqueta para resaltar en rojo archivos pesados
+        self.tree.tag_configure("large_file", foreground="#FF5555")
     
     def select_project(self):
         folder = filedialog.askdirectory(title="Seleccionar Proyecto")
@@ -288,25 +275,44 @@ class AICodeEditor(ctk.CTk):
         win.lift()
         win.focus_force()
     
+    def format_size(self, size):
+        if size < 1024 * 1024:
+            size_in_kb = size / 1024
+            return f"{size_in_kb:.2f} KB"
+        size_in_mb = size / (1024 * 1024)
+        return f"{size_in_mb:.2f} MB"
+
     def load_project_files(self, folder):
         for item in self.tree.get_children():
             self.tree.delete(item)
         self.selected_files = {}
+        self.item_sizes = {}
+        self.folder_selected_sizes = {}
         self.file_tree_items = {}
         
-        root_item = self.tree.insert("", "end", text=f"☑️ 📁 {os.path.basename(folder)}", open=True)
+        root_item = self.tree.insert(
+            "", 
+            "end", 
+            open=True,
+            values=(folder, "directory", True)
+        )
         self.file_tree_items[folder] = root_item
+        self.selected_files[folder] = True
         
-        self.add_folder_contents(folder, root_item)
+        total_size = self.add_folder_contents(folder, root_item)
+        self.item_sizes[folder] = total_size
+        self.folder_selected_sizes[folder] = total_size
+        self.update_folder_appearance(root_item)
         
         for item_id in self.tree.get_children(root_item):
             self.tree.item(item_id, open=True)
     
     def add_folder_contents(self, folder, parent_item):
+        total_size = 0
         try:
             items = sorted(os.listdir(folder))
         except PermissionError:
-            return
+            return 0
         
         dirs = []
         files = []
@@ -330,22 +336,43 @@ class AICodeEditor(ctk.CTk):
                 parent_item, 
                 "end", 
                 text=f"☑️ 📁 {dirname}",
-                values=(path, "directory", True)
+                values=(path, "directory", True),
+                tags=("directory",)
             )
             self.file_tree_items[path] = dir_item
             self.selected_files[path] = True
-            self.add_folder_contents(path, dir_item)
+            dir_size = self.add_folder_contents(path, dir_item)
+            total_size += dir_size
+            self.item_sizes[path] = dir_size
+            self.folder_selected_sizes[path] = dir_size
+            self.update_folder_appearance(dir_item)
         
         for filename in files:
             path = os.path.join(folder, filename)
+            try:
+                size = os.path.getsize(path)
+            except OSError:
+                size = 0
+            total_size += size
+            self.item_sizes[path] = size
+            
+            file_text = f"☑️ 📄 {filename}\t({self.format_size(size)})"
+            file_tags = ("file",)
+            if size > 500 * 1024:  # Advertencia archivo > 500KB (Más realista para código)
+                file_text += " ⚠️"
+                file_tags = ("file", "large_file")
+                
             file_item = self.tree.insert(
                 parent_item,
                 "end",
-                text=f"☑️ 📄 {filename}",
-                values=(path, "file", True)
+                text=file_text,
+                values=(path, "file", True),
+                tags=file_tags
             )
             self.file_tree_items[path] = file_item
             self.selected_files[path] = True
+            
+        return total_size
     
     def on_new_item_created(self):
         if not hasattr(self, 'watcher') or not self.watcher:
@@ -456,41 +483,113 @@ class AICodeEditor(ctk.CTk):
     def toggle_selection(self, item_id):
         values = self.tree.item(item_id, 'values')
         if not values:
-            return
+            return 
         
-        path = values[0]
+        path, item_type, _ = values
         
-        if path in self.selected_files:
-            self.selected_files[path] = not self.selected_files[path]
+        # Obtener el estado actual
+        is_currently_selected = self.selected_files.get(path, False)
+        new_selected_state = not is_currently_selected
+        self.selected_files[path] = new_selected_state
+
+        # Actualizar visualmente el checkbox del item clickeado
+        current_text = self.tree.item(item_id, 'text')
+        if new_selected_state:
+            new_text = current_text.replace("⬜", "☑️")
+        else:
+            new_text = current_text.replace("☑️", "⬜")
+        self.tree.item(item_id, text=new_text)
+
+        delta = 0
+        
+        if item_type == "directory":
+            # Lógica precisa para carpetas:
+            # Delta = (Peso objetivo) - (Peso seleccionado actual)
+            # Si seleccionamos: el objetivo es el peso total de la carpeta.
+            # Si deseleccionamos: el objetivo es 0.
+            total_size = self.item_sizes.get(path, 0)
+            current_selected = self.folder_selected_sizes.get(path, 0)
             
-            current_text = self.tree.item(item_id, 'text')
-            
-            if self.selected_files[path]:
-                new_text = current_text.replace("⬜", "☑️")
-                self.update_children_selection(item_id, True)
+            if new_selected_state:
+                target_size = total_size
             else:
-                new_text = current_text.replace("☑️", "⬜")
-                self.update_children_selection(item_id, False)
+                target_size = 0
             
-            self.tree.item(item_id, text=new_text)
-    
+            delta = target_size - current_selected
+            self.folder_selected_sizes[path] = target_size
+            
+            # Propagar el estado a todos los hijos
+            self.update_children_selection(item_id, new_selected_state)
+            
+            self.update_folder_appearance(item_id)
+        
+        else:
+            # Lógica para archivos individuales
+            file_size = self.item_sizes.get(path, 0)
+            if new_selected_state:
+                delta = file_size
+            else:
+                delta = -file_size
+        
+        # Propagar la diferencia (delta) calculada hacia arriba
+        self.update_parent_folders(item_id, delta)
+
+    def update_parent_folders(self, item_id, delta):
+        """Sube por el árbol actualizando el tamaño seleccionado y la apariencia de cada padre."""
+        parent_id = self.tree.parent(item_id)
+        while parent_id:
+            parent_values = self.tree.item(parent_id, 'values')
+            if not parent_values:
+                break
+            
+            parent_path = parent_values[0]
+            if parent_path in self.folder_selected_sizes:
+                self.folder_selected_sizes[parent_path] += delta
+                self.update_folder_appearance(parent_id)
+            
+            parent_id = self.tree.parent(parent_id)
+
+    def update_folder_appearance(self, item_id):
+        """Actualiza el texto y las etiquetas de una carpeta según su tamaño seleccionado."""
+        values = self.tree.item(item_id, 'values')
+        if not values: return
+        path, _, _ = values
+        is_selected = self.selected_files.get(path, False)
+        total_size = self.item_sizes.get(path, 0)
+        selected_size = self.folder_selected_sizes.get(path, 0)
+        checkbox = "☑️" if is_selected else "⬜"
+        basename = os.path.basename(path)
+        text = f"{checkbox} 📁 {basename}\t({self.format_size(selected_size)})"
+        tags = ("directory",)
+        if selected_size > 2 * 1024 * 1024:  # Advertencia carpeta acumulada > 2MB
+            text += " ⚠️"
+            tags = ("directory", "large_file")
+        self.tree.item(item_id, text=text, tags=tags)
+
     def update_children_selection(self, parent_item, selected):
         children = self.tree.get_children(parent_item)
         for child in children:
             child_values = self.tree.item(child, 'values')
             if child_values:
                 child_path = child_values[0]
-                if child_path in self.selected_files:
-                    self.selected_files[child_path] = selected
-                    
-                    child_text = self.tree.item(child, 'text')
-                    if selected:
-                        new_text = child_text.replace("⬜", "☑️")
-                    else:
-                        new_text = child_text.replace("☑️", "⬜")
-                    self.tree.item(child, text=new_text)
-                    
-                    self.update_children_selection(child, selected)
+                self.selected_files[child_path] = selected
+                
+                # Si el hijo es una carpeta, debemos forzar su peso seleccionado interno
+                # para que coincida con el estado 'selected' (todo o nada)
+                child_type = child_values[1]
+                if child_type == "directory":
+                    total = self.item_sizes.get(child_path, 0)
+                    self.folder_selected_sizes[child_path] = total if selected else 0
+                    self.update_folder_appearance(child)
+                
+                child_text = self.tree.item(child, 'text')
+                if selected:
+                    new_text = child_text.replace("⬜", "☑️")
+                else:
+                    new_text = child_text.replace("☑️", "⬜")
+                self.tree.item(child, text=new_text)
+                
+                self.update_children_selection(child, selected)
     
     def on_mode_change(self, value):
         if "Plan" in value:
@@ -505,22 +604,6 @@ class AICodeEditor(ctk.CTk):
                 text="💡 Build: La IA da código directamente",
                 text_color="gray"
             )
-    
-    def check_all_files(self):
-        for path in self.selected_files:
-            self.selected_files[path] = True
-            if path in self.file_tree_items:
-                item = self.file_tree_items[path]
-                text = self.tree.item(item, "text")
-                self.tree.item(item, text=text.replace("⬜", "☑️"))
-    
-    def uncheck_all_files(self):
-        for path in self.selected_files:
-            self.selected_files[path] = False
-            if path in self.file_tree_items:
-                item = self.file_tree_items[path]
-                text = self.tree.item(item, "text")
-                self.tree.item(item, text=text.replace("☑️", "⬜"))
     
     def generate_instructions(self):
         from core.prompt_generator import generate_instruction_file

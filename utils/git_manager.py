@@ -7,17 +7,25 @@ from typing import List, Dict, Optional
 
 def run_git_command(project_path: str, *args) -> tuple:
     try:
+        # Evitar que git pida credenciales interactivamente y bloquear el proceso
+        env = os.environ.copy()
+        env['GIT_TERMINAL_PROMPT'] = '0'
+        
         result = subprocess.run(
             ["git", *args],
             cwd=project_path,
             capture_output=True,
             text=True,
             encoding='utf-8',
-            errors='replace'
+            errors='replace',
+            env=env,
+            timeout=10 # Timeout de 10 segundos para evitar congelamientos
         )
         return result.stdout.strip(), result.stderr.strip(), result.returncode
     except FileNotFoundError:
         return "", "Git no encontrado en el sistema", 1
+    except subprocess.TimeoutExpired:
+        return "", "El comando de Git excedió el tiempo de espera", 1
     except Exception as e:
         return "", str(e), 1
 
@@ -58,6 +66,10 @@ def get_status(project_path: str) -> Dict[str, List[str]]:
             worktree_status = line[1]
             filepath = line[3:] if len(line) > 3 else line[2:].strip()
             
+            # Git status --porcelain pone comillas en rutas con espacios
+            if filepath.startswith('"') and filepath.endswith('"'):
+                filepath = filepath[1:-1]
+            
             if index_status in ('A', 'M', 'D', 'R', 'C') or worktree_status in ('M', 'D'):
                 staged.append(filepath)
             
@@ -75,11 +87,13 @@ def get_status(project_path: str) -> Dict[str, List[str]]:
 
 
 def get_history(project_path: str, limit: int = 50) -> List[Dict[str, str]]:
+    # Usamos un separador poco común para evitar colisiones con el mensaje del commit
+    separator = "||||"
     stdout, stderr, code = run_git_command(
         project_path, 
         "log", 
         f"--max-count={limit}",
-        "--pretty=format:%H|%h|%s|%an|%ad|%cn|%cd",
+        f"--pretty=format:%H{separator}%h{separator}%s{separator}%an{separator}%ad{separator}%cn{separator}%cd",
         "--date=format:%d/%m/%Y %H:%M:%S"
     )
     
@@ -91,7 +105,7 @@ def get_history(project_path: str, limit: int = 50) -> List[Dict[str, str]]:
         if not line.strip():
             continue
         
-        parts = line.split('|')
+        parts = line.split(separator)
         if len(parts) >= 6:
             commits.append({
                 "hash": parts[0],

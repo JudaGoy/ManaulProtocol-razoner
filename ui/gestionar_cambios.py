@@ -7,7 +7,7 @@ from typing import List, Dict, Optional
 
 from core.change_parser import Change, ChangeError, apply_change, get_file_diff, parse_xml_content, normalize_text
 from utils.git_manager import get_status, get_history, commit, restore, get_commit_diff, get_default_commit_message, get_commit_count, get_file_at_commit, get_current_file_content, revert_file, get_modified_files_since_commit, get_commit_files, get_uncommitted_files, discard_all_changes
-from utils.apply_history import save_change, get_apply_history, clear_apply_history, get_files_with_history, clear_all_apply_history, apply_change_with_history
+from utils.apply_history import apply_change_with_history, get_files_with_history, clear_apply_history, clear_all_apply_history, get_history_snapshots
 from utils.file_watcher import ProjectWatcher
 
 
@@ -394,15 +394,14 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             # Cambios de contenido (edición de código)
             else:
                 original_code = get_file_at_commit(self.project_path, "HEAD", rel_path)
+                if original_code is None: # Si el archivo es nuevo en este commit
+                    original_code = ""
+
                 success, error_msg = apply_change_with_history(self.project_path, change, original_code)
                 
                 self.watcher.ignorar = False
                 
                 if success:
-                    if change.action in ['crear', 'crear_carpeta']:
-                        if hasattr(self.main_window, 'refresh_tree'):
-                            self.main_window.refresh_tree(select_new=True)
-                    
                     widget_data['accepted'] = True
                     widget_data['card'].configure(fg_color="#1a3d1a")
                     self.remove_applied_block(index)
@@ -494,7 +493,11 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
                         indices_to_hide.append(i)
                 else:
                     original_code = get_file_at_commit(self.project_path, "HEAD", rel_path)
+                    if original_code is None:
+                        original_code = ""
+
                     success, error_msg = apply_change_with_history(self.project_path, change, original_code)
+
                     if success:
                         if change.action in ['crear', 'crear_carpeta']:
                             if not hasattr(self, '_tree_refreshed'):
@@ -811,8 +814,8 @@ class VersionControlWindow(ctk.CTkToplevel):
     
     def create_file_card(self, filename: str):
         """Crea un elemento en la lista para un archivo modificado."""
-        versions = get_apply_history(self.project_path, filename)
-        version_count = len(versions)
+        snapshots = get_history_snapshots(self.project_path, filename)
+        version_count = len(snapshots)
         
         uncommitted = get_uncommitted_files(self.project_path)
         is_uncommitted = filename in uncommitted
@@ -898,11 +901,11 @@ class VersionControlWindow(ctk.CTkToplevel):
 
     def navigate_version(self, filename: str, direction: int):
         """Navega entre las versiones del historial de aplicación de cambios."""
-        versions = get_apply_history(self.project_path, filename)
+        snapshots = get_history_snapshots(self.project_path, filename)
         
         if direction == -1:
-            if versions:
-                self.current_version_index = len(versions)
+            if snapshots:
+                self.current_version_index = len(snapshots)
             else:
                 self.current_version_index = 0
         else:
@@ -915,8 +918,8 @@ class VersionControlWindow(ctk.CTkToplevel):
         """Muestra el diff side-by-side entre el último commit y la versión actual/seleccionada."""
         self.selected_file = filename
         
-        versions = get_apply_history(self.project_path, filename)
-        version_count = len(versions)
+        snapshots = get_history_snapshots(self.project_path, filename)
+        version_count = len(snapshots)
         
         last_commit_code = get_file_at_commit(self.project_path, "HEAD", filename)
         current_code = get_current_file_content(self.project_path, filename)
@@ -927,8 +930,8 @@ class VersionControlWindow(ctk.CTkToplevel):
         applied_code = current_code
         if version_count > 0 and self.current_version_index > 0:
             idx = self.current_version_index - 1
-            if idx < len(versions):
-                applied_code = versions[idx]['code']
+            if idx < len(snapshots):
+                applied_code = snapshots[idx]
         
         if version_count > 0:
             self.diff_header_label.configure(text=f"📄 {filename} (Aplicado sin commit - {version_count})")
