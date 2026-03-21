@@ -2,6 +2,111 @@ import os
 from datetime import datetime
 
 
+BINARY_EXTENSIONS = {
+    '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.ico', '.svg', '.webp',
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.zip', '.tar', '.gz', '.rar', '.7z',
+    '.exe', '.dll', '.so', '.dylib',
+    '.mp3', '.mp4', '.avi', '.mov', '.mkv', '.wav',
+    '.ttf', '.otf', '.woff', '.woff2', '.eot',
+    '.pyc', '.pyo', '.class', '.o', '.obj',
+    '.db', '.sqlite', '.sqlite3', '.env', '.pem', '.key'
+}
+
+
+def is_binary_file(filepath: str) -> bool:
+    _, ext = os.path.splitext(filepath)
+    return ext.lower() in BINARY_EXTENSIONS
+
+
+def generate_file_tree(selected_paths: list, project_path: str) -> str:
+    lines = []
+    lines.append("=" * 60)
+    lines.append("                    📁 ÁRBOL DE ARCHIVOS SELECCIONADOS")
+    lines.append("=" * 60)
+    lines.append("")
+    
+    selected_set = set(selected_paths)
+    
+    def get_relative_path(path: str) -> str:
+        return os.path.relpath(path, project_path)
+    
+    all_items = []
+    for path in selected_paths:
+        if os.path.isfile(path):
+            all_items.append(('file', path))
+        elif os.path.isdir(path):
+            all_items.append(('dir', path))
+    
+    all_items.sort(key=lambda x: x[1])
+    
+    dir_tree = {}
+    for item_type, path in all_items:
+        rel_path = get_relative_path(path)
+        parts = rel_path.replace('\\', '/').split('/')
+        
+        if item_type == 'file':
+            dir_tree[rel_path] = 'file'
+        else:
+            dir_tree[rel_path] = 'dir'
+            for parent_dir in _get_parent_dirs(rel_path):
+                if parent_dir not in dir_tree:
+                    dir_tree[parent_dir] = 'dir_placeholder'
+    
+    sorted_keys = sorted(dir_tree.keys())
+    
+    def render_tree(keys, prefix="", is_last=True):
+        result = []
+        items = list(keys)
+        
+        for i, key in enumerate(items):
+            is_last_item = (i == len(items) - 1)
+            
+            connector = "└── " if is_last_item else "├── "
+            
+            key_type = dir_tree.get(key, 'file')
+            
+            if key_type == 'dir':
+                icon = "📁"
+                result.append(f"{prefix}{connector}{icon} {os.path.basename(key)}/")
+                
+                child_prefix = prefix + ("    " if is_last_item else "│   ")
+                child_keys = sorted([k for k in keys if k.startswith(key + '/') and '/' not in k[len(key)+1:]])
+                
+                if child_keys:
+                    result.extend(render_tree(child_keys, child_prefix, True))
+            
+            elif key_type == 'dir_placeholder':
+                icon = "📁"
+                result.append(f"{prefix}{connector}{icon} {os.path.basename(key)}/")
+            else:
+                if is_binary_file(key):
+                    icon = "📎"
+                else:
+                    icon = "📄"
+                result.append(f"{prefix}{connector}{icon} {os.path.basename(key)}")
+        
+        return result
+    
+    tree_lines = render_tree(sorted_keys)
+    lines.extend(tree_lines)
+    
+    lines.append("")
+    lines.append(f"Total: {len(selected_paths)} elementos")
+    lines.append("=" * 60)
+    
+    return "\n".join(lines)
+
+
+def _get_parent_dirs(path: str) -> list:
+    parts = path.replace('\\', '/').split('/')
+    parents = []
+    for i in range(1, len(parts)):
+        parent = '/'.join(parts[:i])
+        parents.append(parent)
+    return parents
+
+
 PLAN_MODE_TEMPLATE = '''
 $SEARCH_REPLACE_FORMAT $CODE_CHANGES_ONLY
 [RESPONSE::es] [MODE::PLAN]
@@ -449,6 +554,19 @@ def get_file_contents(project_path, selected_paths):
     for path in selected_paths:
         if os.path.isfile(path):
             rel_path = os.path.relpath(path, project_path)
+            
+            if is_binary_file(path):
+                lines.append("")
+                lines.append("=" * 40)
+                lines.append(f"📎 {rel_path} [BINARIO - contenido omitido]")
+                lines.append("=" * 40)
+                lines.append("")
+                lines.append(f"[Archivo binario/no editable: {os.path.basename(path)}]")
+                lines.append("")
+                lines.append("=" * 40)
+                lines.append("")
+                continue
+            
             lines.append("")
             lines.append("=" * 40)
             lines.append(f"📄 {rel_path}")
@@ -463,8 +581,6 @@ def get_file_contents(project_path, selected_paths):
             lines.append("")
             lines.append("=" * 40)
             lines.append("")
-        else:
-            lines.append(f"[File not found: {path}]")
     
     return "\n".join(lines)
 
@@ -524,6 +640,8 @@ def generate_instruction_file(project_path, selected_paths, user_prompt, mode="b
         output.append("When you want code, switch to BUILD MODE.")
     
     output.append("=" * 80)
+    
+    output.append(generate_file_tree(selected_paths, project_path))
     
     output_text = "\n".join(output)
     

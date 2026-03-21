@@ -105,18 +105,7 @@ def clear_all_apply_history(project_path: str) -> bool:
 
 
 def get_files_with_history(project_path: str) -> List[str]:
-    changes_dir = os.path.join(project_path, "_changes")
-    
-    if not os.path.exists(changes_dir):
-        return []
-    
-    files = []
-    for filename in os.listdir(changes_dir):
-        if filename.startswith("_") and filename.endswith(".txt") and filename != "_changes.txt":
-            original_name = filename[1:-4]
-            files.append(original_name)
-    
-    return files
+    return []
 
 
 def apply_change_with_history(project_path: str, change, original_code: str = None) -> Tuple[bool, str]:

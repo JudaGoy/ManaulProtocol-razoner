@@ -1,7 +1,9 @@
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import threading
+import os
 from services.git_service import run_git_command
+from domain.prompt_generator import BINARY_EXTENSIONS
 
 
 class ProjectWatcher:
@@ -12,7 +14,8 @@ class ProjectWatcher:
         self.ignorar = False
         self.observer = None
         self.lock = threading.Lock()
-        self.ignore_patterns = {'.apply_history', '__pycache__', '.git', '.pyc', '.pyo', '.DS_Store', '.gitignore', '_changes.txt'}
+        self.ignore_dirs = {'.git', '__pycache__', '_changes', '.apply_history'}
+        self.ignore_files = {'.DS_Store', '.gitignore'}
         self.last_commit_hash = self._get_current_commit_hash()
     
     def _get_current_commit_hash(self):
@@ -50,9 +53,19 @@ class ProjectWatcher:
             if self.ignorar:
                 return True
         
-        for pattern in self.ignore_patterns:
-            if pattern in filepath:
-                return True
+        # Check for binary extensions
+        _, ext = os.path.splitext(filepath)
+        if ext.lower() in BINARY_EXTENSIONS:
+            return True
+
+        # Check for ignored files
+        if os.path.basename(filepath) in self.ignore_files:
+            return True
+
+        # Check for ignored directories
+        parts = filepath.replace('\\', '/').split('/')
+        if any(part in self.ignore_dirs for part in parts):
+            return True
         
         return False
     

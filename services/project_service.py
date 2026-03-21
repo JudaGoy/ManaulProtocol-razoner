@@ -1,5 +1,6 @@
 import os
 from services.git_service import init_git, is_git_repo
+from domain.prompt_generator import BINARY_EXTENSIONS
 
 
 def create_changes_directory(project_path: str) -> str:
@@ -31,8 +32,18 @@ def update_gitignore(project_path: str) -> tuple[bool, str]:
         "*_instrucciones_*.txt",
         "",
         "# Carpeta de cambios de la app",
-        "_changes/"
+        "_changes/",
+        "",
+        "# Archivos de sistema y caches",
+        "__pycache__/",
+        ".DS_Store",
+        "",
+        "# Archivos binarios y compilados",
     ]
+    
+    # Add binary extensions as patterns
+    binary_patterns = sorted([f"*{ext}" for ext in BINARY_EXTENSIONS])
+    lines_to_add.extend(binary_patterns)
     
     if not os.path.exists(gitignore_path):
         with open(gitignore_path, 'w', encoding='utf-8') as f:
@@ -40,17 +51,16 @@ def update_gitignore(project_path: str) -> tuple[bool, str]:
         return True, "Gitignore creado"
     else:
         with open(gitignore_path, 'r', encoding='utf-8') as f:
-            existing_content = f.read()
+            existing_lines = {line.strip() for line in f.readlines()}
         
-        needs_update = False
+        to_append = []
         for line in lines_to_add:
-            if line and line not in existing_content:
-                existing_content += "\n" + line
-                needs_update = True
+            if line and line not in existing_lines:
+                to_append.append(line)
         
-        if needs_update:
-            with open(gitignore_path, 'w', encoding='utf-8') as f:
-                f.write(existing_content)
+        if to_append:
+            with open(gitignore_path, 'a', encoding='utf-8') as f:
+                f.write("\n" + "\n".join(to_append))
             return True, "Gitignore actualizado"
     
     return True, "Gitignore sin cambios"

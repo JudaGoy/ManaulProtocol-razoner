@@ -11,6 +11,18 @@ from services.history_service import (
 )
 
 
+def _filter_system_files(files: list) -> list:
+    """Filtra archivos del sistema (_changes, .gitignore, etc)"""
+    filtered = []
+    for f in files:
+        if f == '.gitignore':
+            continue
+        if '_changes' in f:
+            continue
+        filtered.append(f)
+    return filtered
+
+
 def get_git_status(project_path: str) -> dict:
     return get_status(project_path)
 
@@ -25,10 +37,7 @@ def get_files_with_changes(project_path: str) -> list:
     uncommitted_files = get_uncommitted_files(project_path)
     
     all_files = list(set(files_with_history + uncommitted_files))
-    
-    # Filtrar archivos ignorados explícitamente (.gitignore y _changes.txt)
-    all_files = [f for f in all_files if f != '.gitignore' and not f.endswith('_changes.txt')]
-    
+    all_files = _filter_system_files(all_files)
     all_files.sort()
     
     return all_files
@@ -140,7 +149,6 @@ def has_changes_to_commit(project_path: str) -> bool:
     status = get_status(project_path)
     
     all_changes = status["staged"] + status["modified"] + status["untracked"]
-    # Verificar si hay cambios válidos ignorando los archivos de sistema
-    valid_changes = [f for f in all_changes if f != '.gitignore' and not f.endswith('_changes.txt')]
+    valid_changes = _filter_system_files(all_changes)
     
     return bool(valid_changes)

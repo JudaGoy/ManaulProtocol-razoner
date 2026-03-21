@@ -7,7 +7,7 @@ from tkinter import ttk
 from services.file_watcher import ProjectWatcher
 from services.project_service import initialize_project
 from services.history_service import clear_history_for_files
-from domain.prompt_generator import generate_instruction_file
+from domain.prompt_generator import generate_instruction_file, BINARY_EXTENSIONS
 
 from ui.windows.change_management import GestionarCambiosWindow
 
@@ -316,14 +316,23 @@ class AICodeEditor(ctk.CTk):
                 size = os.path.getsize(path)
             except OSError:
                 size = 0
-            total_size += size
-            self.item_sizes[path] = size
             
-            file_text = f"☑️ 📄 {filename}\t({self.format_size(size)})"
-            file_tags = ("file",)
-            if size > 500 * 1024:
-                file_text += " ⚠️"
-                file_tags = ("file", "large_file")
+            _, ext = os.path.splitext(filename)
+            is_binary = ext.lower() in BINARY_EXTENSIONS
+
+            if is_binary:
+                self.item_sizes[path] = 0
+                file_text = f"☑️ 📄 {filename}\t(No-compiler)"
+                file_tags = ("file",)
+            else:
+                total_size += size
+                self.item_sizes[path] = size
+                
+                file_text = f"☑️ 📄 {filename}\t({self.format_size(size)})"
+                file_tags = ("file",)
+                if size > 500 * 1024:
+                    file_text += " ⚠️"
+                    file_tags = ("file", "large_file")
                 
             file_item = self.tree.insert(
                 parent_item,
