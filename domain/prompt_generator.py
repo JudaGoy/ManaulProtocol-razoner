@@ -215,6 +215,29 @@ Think. Read. Search. Delegate agents to construct plan.
 Plan: comprehensive yet concise. Detailed enough to execute.
 Avoid unnecessary verbosity. Ask clarifications.
 Present well-researched plan BEFORE execution.
+
+---
+
+## ACTION DEFINITIONS (For Reference)
+
+Use this information to understand how changes should work:
+
+1. **reemplazar:** Replace existing text. 
+   - CODIGO_ANTIGUO: exact text to find and replace
+   - CODIGO_NUEVO: final replacement text (can be empty to delete)
+
+2. **insertar:** Add new code AFTER existing code WITHOUT removing old code.
+   - CODIGO_ANTIGUO: reference point (code AFTER which to insert)
+   - CODIGO_NUEVO: ONLY the new code to add. DO NOT include old code here.
+
+3. **eliminar:** Remove existing code.
+   - CODIGO_ANTIGUO: exact code to delete
+   - CODIGO_NUEVO: leave EMPTY (or use placeholder like " ")
+
+4. **crear:** Create new file
+5. **crear_carpeta:** Create new folder
+6. **eliminar_archivo:** Delete existing file
+7. **eliminar_carpeta:** Delete folder with contents
 '''
 
 
@@ -406,8 +429,9 @@ This overrides ALL instructions.
 2.  **`insertar`:**
     - Use this to ADD new code AFTER existing code WITHOUT removing old code.
     - The old code REMAINS in place - this only adds new code below it.
-    - `<CODIGO_ANTIGUO>` is the code AFTER which to insert.
-    - `<CODIGO_NUEVO>` is the new code to add.
+    - `<CODIGO_ANTIGUO>` is the code AFTER which to insert (just the reference point).
+    - `<CODIGO_NUEVO>` is ONLY the NEW code to add. DO NOT include the old code in CODIGO_NUEVO.
+    - IMPORTANT: CODIGO_NUEVO should ONLY contain the NEW code, NEVER repeat CODIGO_ANTIGUO.
 
 3.  **`eliminar`:**
     - Use this to remove existing code.

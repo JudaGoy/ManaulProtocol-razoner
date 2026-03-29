@@ -259,7 +259,7 @@ def parse_xml_content(content, project_path):
                     if not new_code:
                         new_code = _extract_raw_xml_content(block_xml, 'new_code')
                     
-                    if accion in ['crear', 'crear_carpeta', 'eliminar_archivo', 'eliminar_carpeta', 'eliminar']:
+                    if accion in ['crear', 'crear_carpeta', 'eliminar_archivo', 'eliminar_carpeta', 'eliminar', 'reemplazar']:
                         if not new_code and accion in ['crear', 'crear_carpeta']:
                             continue
                     else:
@@ -394,7 +394,7 @@ def apply_change(change: Change, project_path: str = None) -> bool:
             change.applied = success
             return success
 
-        if change.action in ['reemplazar', 'insertar']:
+        if change.action in ['reemplazar', 'insertar', 'eliminar']:
             return _apply_text_change_as_patch(change, project_path)
 
         if change.action == 'crear_carpeta':
@@ -520,6 +520,7 @@ def _apply_text_change_as_patch(change: Change, project_path: str) -> bool:
     elif change.action == 'eliminar':
         new_content = replace_specific_instances(original_content, target_old_code, "", change.instances)
     else:
+        print(f"[DEBUG] Acción no reconocida: {change.action}")
         return False
 
     if original_content == new_content:

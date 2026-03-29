@@ -28,6 +28,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         self.change_widgets = {}
         self.changes = []
         self.failed_errors = []
+        self.info_window = None
         
         self.watcher = ProjectWatcher(project_path, self.load_changes)
         self.watcher.iniciar()
@@ -452,11 +453,19 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         ctk.CTkButton(error_win, text="Aceptar", command=error_win.destroy).pack(pady=10)
     
     def show_info(self, message):
+        if self.info_window is not None:
+            try:
+                self.info_window.destroy()
+            except:
+                pass
+        
         info_win = ctk.CTkToplevel(self)
         info_win.transient(self)
         info_win.attributes("-topmost", True)
         info_win.title("Información")
         info_win.geometry("300x100")
+        
+        self.info_window = info_win
         
         ctk.CTkLabel(info_win, text=f"ℹ️ {message}").pack(expand=True)
         ctk.CTkButton(info_win, text="Aceptar", command=info_win.destroy).pack(pady=5)
