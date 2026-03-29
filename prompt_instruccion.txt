@@ -1,0 +1,15 @@
+MODO: PLAN
+TAREA: T1.1 (Seguridad de Rutas)
+CONTEXTO: ManaulProtocol
+
+Hola OpenCode. Vamos a trabajar bajo la modalidad SPEC. 
+Tu objetivo es implementar la seguridad de rutas definida en el archivo 
+'docs/specs/T1_1_seguridad_rutas.md'.
+
+PASOS A SEGUIR:
+1. Lee 'domain/models.py' para identificar dónde se ejecutan las acciones de archivo.
+2. Analiza cómo integrar 'is_safe_path' sin romper la compatibilidad actual.
+3. Preséntame un <ANÁLISIS> con los cambios propuestos.
+
+REGLA CRÍTICA: 
+No apliques cambios (BUILD) hasta que yo apruebe tu plan en este chat.

@@ -312,8 +312,6 @@ class VersionControlWindow(ctk.CTkToplevel):
             self.create_file_card(filename, file_status)
     
     def create_file_card(self, filename: str, file_status: dict):
-        version_count = file_status['version_count']
-        
         card = ctk.CTkFrame(self.files_list, width=500)
         card.pack(fill="x", pady=3, padx=2)
         card.grid_columnconfigure(0, weight=1)

@@ -1,3 +1,16 @@
 customtkinter
 CTkFileDialog
 watchdog
+# --- ManaulProtocol: Core Dependencies ---
+# Gestión de Repositorios y Git
+GitPython>=3.1.30
+
+# Parseo de XML Robusto (Evita fallos de Regex)
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# Normalización de Texto y Codificación
+ftfy>=6.1.1
+
+# Validación de Estilo y Sintaxis (Opcional para QA)
+pyflakes>=3.0.0

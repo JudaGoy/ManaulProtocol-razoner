@@ -7,7 +7,6 @@ from typing import List, Dict
 
 from domain.models import Change, get_file_diff, parse_xml_content, normalize_text
 from services.file_watcher import ProjectWatcher
-from ui.windows.version_control import VersionControlWindow
 from ui.windows.change_management_controller import (
     load_changes, accept_change, accept_all_changes,
     remove_applied_block, get_action_text
@@ -28,6 +27,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         self.changes_file = changes_file
         self.change_widgets = {}
         self.changes = []
+        self.failed_errors = []
         
         self.watcher = ProjectWatcher(project_path, self.load_changes)
         self.watcher.iniciar()
@@ -98,13 +98,15 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
             fg_color="red"
         ).pack(side="left", padx=5)
         
-        ctk.CTkButton(
+        self.ia_report_btn = ctk.CTkButton(
             btn_frame,
-            text="📊 Control de Versiones",
-            command=self.show_version_control,
-            fg_color="#fd7e14",
-            width=160
-        ).pack(side="left", padx=5)
+            text="🤖 IA Report",
+            command=self.copy_ia_report,
+            fg_color="#1a73e8",
+            hover_color="#1557b0",
+            width=120
+        )
+        self.ia_report_btn.pack(side="left", padx=5)
         
         style = ttk.Style(self)
         style.theme_use("clam")
@@ -326,6 +328,7 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
                 remove_applied_block(self.changes_file, change)
                 self.hide_applied_change(index)
                 self.update_status()
+                self.load_text_content()
                 
                 if change.action in ['crear', 'crear_carpeta']:
                     if hasattr(self.main_window, 'refresh_tree'):
@@ -344,26 +347,31 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         self.update_status()
     
     def accept_all(self):
-        accepted_count = 0
-        indices_to_hide = []
-        
         self.watcher.ignorar = True
+        if hasattr(self.main_window, 'watcher') and self.main_window.watcher:
+            self.main_window.watcher.ignorar = True
         
-        for i in list(self.change_widgets.keys()):
-            widget_data = self.change_widgets.get(i)
-            if widget_data and not widget_data['accepted']:
-                change = widget_data['change']
-                
-                success, error_msg = accept_change(self.project_path, change, {})
-                
-                if success:
+        self.failed_errors = []
+        
+        try:
+            pending_changes = [
+                w['change'] for w in self.change_widgets.values() if not w['accepted']
+            ]
+            
+            accepted_count, indices_to_hide, self.failed_errors = accept_all_changes(
+                self.project_path, pending_changes, {}
+            )
+            
+            for i in indices_to_hide:
+                widget_data = self.change_widgets.get(i)
+                if widget_data:
                     widget_data['accepted'] = True
                     widget_data['card'].configure(fg_color="#1a3d1a")
-                    remove_applied_block(self.changes_file, change)
-                    accepted_count += 1
-                    indices_to_hide.append(i)
-        
-        self.watcher.ignorar = False
+                    remove_applied_block(self.changes_file, widget_data['change'])
+        finally:
+            self.watcher.ignorar = False
+            if hasattr(self.main_window, 'watcher') and self.main_window.watcher:
+                self.main_window.watcher.ignorar = False
         
         if hasattr(self.main_window, 'refresh_tree') and accepted_count > 0:
             self.main_window.refresh_tree(select_new=True)
@@ -373,7 +381,26 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         for i in indices_to_hide:
             self.hide_applied_change(i)
         
-        self.show_info(f"Se aplicaron {accepted_count} cambios")
+        self.load_text_content()
+        
+        if self.failed_errors:
+            self.show_info(f"Se aplicaron {accepted_count} cambios, {len(self.failed_errors)} fallidos")
+        else:
+            self.show_info(f"Se aplicaron {accepted_count} cambios")
+    
+    def copy_ia_report(self):
+        from services.report_service import generate_ia_report
+        report = generate_ia_report()
+        if report:
+            self.clipboard_clear()
+            self.clipboard_append(report)
+            self.status_label.configure(
+                text="✅ IA Report copiado al portapapeles - Pégalo en el chat"
+            )
+        else:
+            self.status_label.configure(
+                text="ℹ️ No hay cambios registrados aún"
+            )
     
     def reject_all(self):
         indices_to_hide = []
@@ -433,6 +460,3 @@ class GestionarCambiosWindow(ctk.CTkToplevel):
         
         ctk.CTkLabel(info_win, text=f"ℹ️ {message}").pack(expand=True)
         ctk.CTkButton(info_win, text="Aceptar", command=info_win.destroy).pack(pady=5)
-    
-    def show_version_control(self):
-        VersionControlWindow(self, self.project_path)

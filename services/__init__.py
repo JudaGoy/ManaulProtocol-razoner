@@ -21,14 +21,6 @@ from .git_service import (
     apply_git_patch,
     apply_patch_to_text,
 )
-from .history_service import (
-    apply_change_with_history,
-    get_files_with_history,
-    clear_apply_history,
-    clear_all_apply_history,
-    get_history_snapshots,
-    clear_history_for_files,
-)
 from .file_watcher import ProjectWatcher
 from .project_service import (
     initialize_project,
@@ -37,4 +29,15 @@ from .project_service import (
     get_changes_file_path,
     ensure_project_structure,
     update_gitignore,
+    setup_logging,
+    log_session_start,
+    log_session_end,
+    log_change_success,
+    log_change_error,
+    generate_error_report,
+)
+from .report_service import (
+    register_report,
+    clear_reports,
+    generate_ia_report,
 )

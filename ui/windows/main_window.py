@@ -6,7 +6,6 @@ from tkinter import ttk
 
 from services.file_watcher import ProjectWatcher
 from services.project_service import initialize_project
-from services.history_service import clear_history_for_files
 from domain.prompt_generator import generate_instruction_file, BINARY_EXTENSIONS
 
 from ui.windows.change_management import GestionarCambiosWindow
@@ -287,6 +286,8 @@ class AICodeEditor(ctk.CTk):
                 continue
             if item == '_changes':
                 continue
+            if item == 'manual_protocol.log' or item == 'manaul_protocol.log':
+                continue
             path = os.path.join(folder, item)
             if os.path.isdir(path):
                 dirs.append(item)
@@ -385,18 +386,7 @@ class AICodeEditor(ctk.CTk):
             self.tree.see(first_item)
     
     def on_git_commit(self, files):
-        if not files:
-            return
-        
-        full_paths = []
-        for filename in files:
-            full_path = os.path.join(self.project_path, filename)
-            if os.path.exists(full_path):
-                full_paths.append(full_path)
-        
-        if full_paths:
-            clear_history_for_files(self.project_path, full_paths)
-            print(f"Historial de cambios limpiado para {len(full_paths)} archivos en commit")
+        pass
     
     def detener_watcher(self):
         if hasattr(self, 'watcher') and self.watcher:

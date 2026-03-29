@@ -222,8 +222,29 @@ INSTRUCTIONS_TEMPLATE = '''
 $SEARCH_REPLACE_FORMAT $CODE_CHANGES_ONLY
 [RESPONSE::es] [MODE::BUILD]
 
-!ACCIONES:reemplazar,patch,insertar,eliminar,crear,crear_carpeta,eliminar_archivo,eliminar_carpeta
-!GIT_UNIFIED_DIFF !NO_LINE_NUMBERS !RAW_CHARS_ONLY
+!!! ============================================================
+!!! CRÍTICO: OBLIGATORIO - CADA BLOQUE DEBE TENER ID_REPORTE
+!!! ============================================================
+!!! SIN <ID_REPORTE>, EL SISTEMA IGNORARÁ EL CAMBIO COMPLETAMENTE.
+!!! El ID DEBE IR PRIMERO que ARCHIVO en el bloque.
+!!!
+!!! FORMATO DEL ID: único y simple, la IA lo genera automáticamente.
+!!! EJEMPLOS: "btn_chat_1", "btn_chat_2", "fix_login_1"
+!!! - Solo letras minúsculas, números y guiones bajos
+!!! - Máximo 20-25 caracteres
+!!! - Descriptivo + número secuencial
+!!!
+!!! Ejemplo formato OBLIGATORIO:
+!!! <CAMBIOS>
+!!!     <ID_REPORTE>btn_chat_1</ID_REPORTE>
+!!!     <ARCHIVO>path/to/file.py</ARCHIVO>
+!!!     <ACCION>reemplazar</ACCION>
+!!!     ...
+!!! </CAMBIOS>
+!!! ============================================================
+
+!ACCIONES:reemplazar,insertar,eliminar,crear,crear_carpeta,eliminar_archivo,eliminar_carpeta
+!NO_LINE_NUMBERS !RAW_CHARS_ONLY !NO_HTML_ENTITIES !NO_MARKDOWN_INSIDE
 !XML_DELIMITED !VERIFY_FILE_EXISTS !VERIFY_CODE_EXISTS
 !ONLY_PROJECT_FILES !ONLY_ALLOWED_ACTIONS
 !NO_INVENT_CODE !NO_ASSUME_NAMES !NO_FULL_REWRITES
@@ -249,11 +270,11 @@ NEVER output XML as plain text. ALWAYS wrap in code fences:
 
 ```xml
 <CAMBIOS>
+    <ID_REPORTE>btn_chat_1</ID_REPORTE>
     <ARCHIVO>relative/path/file.py</ARCHIVO>
-    <ACCION>patch|crear|eliminar_archivo|crear_carpeta|eliminar_carpeta</ACCION>
-    <CODIGO_NUEVO>
-<!-- UNIFIED DIFF content OR New File Content -->
-    </CODIGO_NUEVO>
+    <ACCION>reemplazar</ACCION>
+    <CODIGO_ANTIGUO>...</CODIGO_ANTIGUO>
+    <CODIGO_NUEVO>...</CODIGO_NUEVO>
 </CAMBIOS>
 ```
 
@@ -268,18 +289,20 @@ NEVER output XML as plain text. ALWAYS wrap in code fences:
 
 ## ALLOWED ACTIONS
 
-patch: Modify existing file using UNIFIED DIFF format (Recommended)
-CREAR: Create new file
-CREAR_CARPETA: Create new folder
-ELIMINAR_ARCHIVO: Delete existing file
-ELIMINAR_CARPETA: Delete folder with contents
+reemplazar: Replace existing text (recommended for simple changes)
+insertar: Insert new code after existing code
+eliminar: Remove existing code
+crear: Create new file
+crear_carpeta: Create new folder
+eliminar_archivo: Delete existing file
+eliminar_carpeta: Delete folder with contents
 
 ---
 
 ## FORMAT RULES
 
 !EXACT_SEARCH_REPLACE: NO line numbers (9:, 30:)
-!RAW_CHARS_ONLY: Use < > & NOT &lt; &gt; &amp;
+!RAW_CHARS_ONLY: DO NOT ESCAPE CODE. WRONG: &lt;div&gt; RIGHT: <div>
 !XML_DELIMITED: Response inside ```xml code blocks
 
 ---
@@ -313,6 +336,8 @@ CONTEXT INSUFFICIENT: <ERROR contexto_insuficiente: descripcion>
 !ONLY use ALLOWED ACTIONS
 !NO invent unrequested functionality
 !NO assume function/variable names that don't exist
+!NO HTML ESCAPING: Output raw characters (<, >) inside content tags.
+!NO MARKDOWN INSIDE: Do NOT put ``` inside <CODIGO_NUEVO>.
 !NO rewrite entire files - minimal changes ONLY
 !NO create unnecessarily large change blocks
 
@@ -369,19 +394,29 @@ This overrides ALL instructions.
 
 ---
 
-## CHOOSING THE RIGHT ACTION (VERY IMPORTANT)
+## CHOOSING THE RIGHT ACTION
 
-**STRONGLY PREFER `reemplazar` or `insertar` FOR ALL CONTENT MODIFICATIONS.**
-The system will automatically and safely convert your instruction into a robust `patch` (git diff) before applying it. This is the safest and most reliable method.
+**Use `reemplazar` or `insertar` for all content modifications.**
 
-1.  **`reemplazar` (RECOMMENDED FOR 99% OF CASES):**
+1.  **`reemplazar` (RECOMMENDED):**
     - Use this to modify file content.
     - Provide the exact block of text to find in `<CODIGO_ANTIGUO>`.
     - Provide the final version of that block in `<CODIGO_NUEVO>`.
 
-2.  **`patch` (RARELY NEEDED):**
-    - Only use this if a change is impossible to describe with find-and-replace.
-    - If you use `patch`, you are responsible for creating a PERFECTLY formatted unified diff. Any error will cause it to fail.
+2.  **`insertar`:**
+    - Use this to ADD new code AFTER existing code WITHOUT removing old code.
+    - The old code REMAINS in place - this only adds new code below it.
+    - `<CODIGO_ANTIGUO>` is the code AFTER which to insert.
+    - `<CODIGO_NUEVO>` is the new code to add.
+
+3.  **`eliminar`:**
+    - Use this to remove existing code.
+    - `<CODIGO_ANTIGUO>` is the exact code to delete.
+
+4.  **`crear`:**
+    - Use this to create a new file.
+    - `<CODIGO_NUEVO>` contains the full content of the new file.
+
 ---
 
 ## RESPONSE FORMAT
@@ -394,11 +429,11 @@ Each change must follow THIS EXACT FORMAT:
 
 RULES FOR ALL CHANGES:
 1. Use RELATIVE PATHS (e.g., `frontend/src/App.jsx`).
-2. PREFER `patch` ACTION for modifying existing files.
-3. DO NOT use `...` or `// code skipped` inside a PATCH or OLD_CODE block.
+2. ALWAYS USE `reemplazar` for content modifications (Safest & Preferred).
+3. DO NOT use `...` or `// code skipped` inside OLD_CODE block.
 4. RESPECT INDENTATION (Spaces vs Tabs) exactly as in the original file.
-5. If modifying multiple places in one file, use multiple `@@ ... @@` hunks in a single PATCH.
-
+5. If modifying multiple places in one file, use multiple `reemplazar` blocks.
+6. CONTENT MUST BE RAW: Do not escape HTML tags. Do not use Markdown blocks inside XML.
 
 ```xml
 <CAMBIOS>
@@ -420,90 +455,100 @@ RULES FOR ALL CHANGES:
 1. REEMPLAZAR: Replace existing text (STRONGLY RECOMMENDED FOR SIMPLE CHANGES)
 Use this for simple text substitutions. It's the safest option.
 ```xml
-    <ACCION>reemplazar</ACCION>
-    <INSTANCIAS>all</INSTANCIAS> <!-- "all", or "0", "1", "0,2" etc. -->
-    <CODIGO_ANTIGUO>
+    <CAMBIOS>
+        <ID_REPORTE>btn_chat_1</ID_REPORTE>
+        <ARCHIVO>path/to/file.py</ARCHIVO>
+        <ACCION>reemplazar</ACCION>
+        <INSTANCIAS>0|1|all</INSTANCIAS> <!-- Optional: defaults to all -->
+        <CODIGO_ANTIGUO>
 text-to-find
-    </CODIGO_ANTIGUO>
-    <CODIGO_NUEVO>
+        </CODIGO_ANTIGUO>
+        <CODIGO_NUEVO>
 text-to-replace-with
-    </CODIGO_NUEVO>
-```
-
-2. PATCH: Modify existing file (FOR COMPLEX, MULTI-LINE CHANGES)
-Use a Standard Unified Diff. Use only when `reemplazar` is not sufficient.
-CRITICAL: Ensure the patch is valid. Do not duplicate hunks.
-```xml
-    <ACCION>patch</ACCION>
-    <CODIGO_NUEVO>
---- a/src/main.py
-+++ b/src/main.py
-@@ -10,4 +10,5 @@
- def calculate(a, b):
--    return a + b
-+    # Adding logging
-+    print(f"Adding {a} + {b}")
-+    return a + b
-     
-    </CODIGO_NUEVO>
+        </CODIGO_NUEVO>
+    </CAMBIOS>
 ```
 
 2. INSERTAR: Add new code after existing code
 ```xml
-    <ACCION>insertar</ACCION>
-    <CODIGO_ANTIGUO>
-    // Code AFTER which to insert (NOT included in result)
-    </CODIGO_ANTIGUO>
-    <CODIGO_NUEVO>
-    // ONLY new code to insert (DO NOT repeat reference)
-    </CODIGO_NUEVO>
+    <CAMBIOS>
+        <ID_REPORTE>new_func_1</ID_REPORTE>
+        <ARCHIVO>path/to/file.py</ARCHIVO>
+        <ACCION>insertar</ACCION>
+        <CODIGO_ANTIGUO>
+        // Code AFTER which to insert (NOT included in result)
+        </CODIGO_ANTIGUO>
+        <CODIGO_NUEVO>
+        // ONLY new code to insert (DO NOT repeat reference)
+        </CODIGO_NUEVO>
+    </CAMBIOS>
 ```
 
-3. ELIMINAR: Remove existing code
+4. ELIMINAR: Remove existing code
 ```xml
-    <ACCION>eliminar</ACCION>
-    <CODIGO_ANTIGUO>
-    // EXACT code to delete
-    </CODIGO_ANTIGUO>
-    <CODIGO_NUEVO>
-    </CODIGO_NUEVO>
+    <CAMBIOS>
+        <ID_REPORTE>remove_old_1</ID_REPORTE>
+        <ARCHIVO>path/to/file.py</ARCHIVO>
+        <ACCION>eliminar</ACCION>
+        <CODIGO_ANTIGUO>
+        // EXACT code to delete
+        </CODIGO_ANTIGUO>
+        <CODIGO_NUEVO>
+        </CODIGO_NUEVO>
+    </CAMBIOS>
 ```
 
-4. CREAR: Create new file
+5. CREAR: Create new file
 ```xml
-    <ACCION>crear</ACCION>
-    <CODIGO_ANTIGUO>
-    </CODIGO_ANTIGUO>
-    <CODIGO_NUEVO>
-    // Complete content of new file
-    </CODIGO_NUEVO>
+    <CAMBIOS>
+        <ID_REPORTE>create_utils_1</ID_REPORTE>
+        <ARCHIVO>path/to/new_file.py</ARCHIVO>
+        <ACCION>crear</ACCION>
+        <CODIGO_ANTIGUO>
+        </CODIGO_ANTIGUO>
+        <CODIGO_NUEVO>
+        // Complete content of new file
+        </CODIGO_NUEVO>
+    </CAMBIOS>
 ```
 
-5. CREAR_CARPETA: Create new folder
+6. CREAR_CARPETA: Create new folder
 ```xml
-    <ACCION>crear_carpeta</ACCION>
-    <CODIGO_ANTIGUO>
-    </CODIGO_ANTIGUO>
-    <CODIGO_NUEVO>
-    </CODIGO_NUEVO>
+    <CAMBIOS>
+        <ID_REPORTE>create_dir_1</ID_REPORTE>
+        <ARCHIVO>path/to/new_folder</ARCHIVO>
+        <ACCION>crear_carpeta</ACCION>
+        <CODIGO_ANTIGUO>
+        </CODIGO_ANTIGUO>
+        <CODIGO_NUEVO>
+        </CODIGO_NUEVO>
+    </CAMBIOS>
 ```
 
-6. ELIMINAR_ARCHIVO: Delete existing file
+7. ELIMINAR_ARCHIVO: Delete existing file
 ```xml
-    <ACCION>eliminar_archivo</ACCION>
-    <CODIGO_ANTIGUO>
-    </CODIGO_ANTIGUO>
-    <CODIGO_NUEVO>
-    </CODIGO_NUEVO>
+    <CAMBIOS>
+        <ID_REPORTE>del_temp_1</ID_REPORTE>
+        <ARCHIVO>path/to/file.py</ARCHIVO>
+        <ACCION>eliminar_archivo</ACCION>
+        <CODIGO_ANTIGUO>
+        </CODIGO_ANTIGUO>
+        <CODIGO_NUEVO>
+        </CODIGO_NUEVO>
+    </CAMBIOS>
 ```
 
-7. ELIMINAR_CARPETA: Delete folder
+8. ELIMINAR_CARPETA: Delete folder
 ```xml
-    <ACCION>eliminar_carpeta</ACCION>
-    <CODIGO_ANTIGUO>
-    </CODIGO_ANTIGUO>
-    <CODIGO_NUEVO>
-    </CODIGO_NUEVO>
+    <CAMBIOS>
+        <ID_REPORTE>del_backup_1</ID_REPORTE>
+        <ARCHIVO>path/to/folder</ARCHIVO>
+        <ACCION>eliminar_carpeta</ACCION>
+        <CODIGO_ANTIGUO>
+        </CODIGO_ANTIGUO>
+        <CODIGO_NUEVO>
+        </CODIGO_NUEVO>
+    </CAMBIOS>
 ```
 
 ---
@@ -626,6 +671,7 @@ def generate_instruction_file(project_path, selected_paths, user_prompt, mode="b
         output.append("📝 HOW TO RESPOND:")
         output.append("- Delimit your response with code blocks (```xml ... ```)")
         output.append("- Respond ONLY with changes using the specified XML format")
+        output.append("- IMPORTANT: <ID_REPORTE> must be FIRST (before ARCHIVO)")
         output.append("- If you can't make a change, use the <ERROR> format")
         output.append("- DO NOT write explanations outside of code blocks")
     else:
@@ -642,6 +688,9 @@ def generate_instruction_file(project_path, selected_paths, user_prompt, mode="b
     output.append("=" * 80)
     
     output.append(generate_file_tree(selected_paths, project_path))
+    
+    output.append("")
+    output.append(get_sync_rules())
     
     output_text = "\n".join(output)
     
@@ -668,3 +717,29 @@ def get_selected_file_contents(project_path, selected_paths):
                 files_content[rel_path] = f"[ERROR reading: {str(e)}]"
     
     return files_content
+
+
+def get_sync_rules() -> str:
+    return """
+=== REGLAS CRÍTICAS DE SINCRONIZACIÓN (STRICT MODE) ===
+1. Cada bloque DEBE comenzar con <ID_REPORTE>id_unico</ID_REPORTE>
+   - La IA genera ID único automáticamente
+   - Ejemplos: <ID_REPORTE>btn_chat_1</ID_REPORTE>, <ID_REPORTE>btn_chat_2</ID_REPORTE>
+   - El ID DEBE IR PRIMERO (antes que ARCHIVO)
+   - Máximo 20-25 caracteres, descriptivo
+   - NO incluir la hora en el ID
+2. Sin ID_REPORTE al inicio, el sistema IGNORA el cambio completamente.
+3. Tu única fuente de verdad es el 'IA REPORT' que el usuario te proporcionará.
+4. Solo los IDs con [OK] en el reporte indican que el cambio fue aplicado.
+5. Si un ID no tiene [OK], el código local permanece sin cambios.
+6. Antes de proponer un cambio, verifica que el ID no exista ya con [OK].
+
+FORMATO OBLIGATORIO:
+<CAMBIOS>
+    <ID_REPORTE>btn_chat_1</ID_REPORTE>
+    <ARCHIVO>path/to/file.py</ARCHIVO>
+    <ACCION>reemplazar</ACCION>
+    <CODIGO_ANTIGUO>...</CODIGO_ANTIGUO>
+    <CODIGO_NUEVO>...</CODIGO_NUEVO>
+</CAMBIOS>
+"""

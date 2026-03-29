@@ -4,3 +4,54 @@
 
 # Carpeta de cambios de la app
 _changes/
+
+# Archivos de sistema y caches
+__pycache__/
+.DS_Store
+# Archivos binarios y compilados
+*.7z
+*.avi
+*.bmp
+*.class
+*.db
+*.dll
+*.doc
+*.docx
+*.dylib
+*.env
+*.eot
+*.exe
+*.gif
+*.gz
+*.ico
+*.jpeg
+*.jpg
+*.key
+*.mkv
+*.mov
+*.mp3
+*.mp4
+*.o
+*.obj
+*.otf
+*.pdf
+*.pem
+*.png
+*.ppt
+*.pptx
+*.pyc
+*.pyo
+*.rar
+*.so
+*.sqlite
+*.sqlite3
+*.svg
+*.tar
+*.ttf
+*.wav
+*.webp
+*.woff
+*.woff2
+*.xls
+*.xlsx
+*.zip

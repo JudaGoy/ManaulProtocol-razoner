@@ -307,7 +307,10 @@ def apply_git_patch(project_path: str, patch_content: str) -> tuple[bool, str]:
             tmp.write(patch_content)
             tmp_path = tmp.name
         
-        stdout, stderr, code = run_git_command(project_path, "apply", "--ignore-space-change", "--ignore-whitespace", "--verbose", tmp_path)
+        # Usamos --whitespace=fix para que git corrija automáticamente los problemas de espacios en blanco
+        # que a veces genera la IA, lo cual causa los errores de "trailing whitespace" y "corrupt patch".
+        # Esto es más robusto que --ignore-whitespace, que solo afecta la comparación.
+        stdout, stderr, code = run_git_command(project_path, "apply", "--whitespace=fix", "--verbose", tmp_path)
         
         if os.path.exists(tmp_path):
             os.remove(tmp_path)

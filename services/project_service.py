@@ -1,6 +1,118 @@
 import os
+import logging
+from logging.handlers import RotatingFileHandler
 from services.git_service import init_git, is_git_repo
 from domain.prompt_generator import BINARY_EXTENSIONS
+from domain.security import is_safe_path
+from domain.models import ChangeError
+
+LOG_FILE = "manual_protocol.log"
+_logger = None
+
+
+def setup_logging(project_path: str = "."):
+    """Configura el sistema de logging con rotación."""
+    global _logger
+    if _logger is not None:
+        return _logger
+    
+    log_path = os.path.join(project_path, LOG_FILE)
+    
+    _logger = logging.getLogger("manaul_protocol")
+    _logger.setLevel(logging.INFO)
+    
+    handler = RotatingFileHandler(
+        log_path,
+        maxBytes=5*1024*1024,
+        backupCount=3,
+        encoding='utf-8'
+    )
+    formatter = logging.Formatter(
+        '[%(asctime)s] [%(levelname)s] %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    handler.setFormatter(formatter)
+    _logger.addHandler(handler)
+    
+    return _logger
+
+
+def get_logger():
+    """Retorna el logger configurado."""
+    global _logger
+    if _logger is None:
+        _logger = setup_logging(".")
+    return _logger
+
+
+def log_session_start(project_path: str):
+    """Registra el inicio de una sesión."""
+    get_logger().info(f"Sesión iniciada en proyecto: {project_path}")
+
+
+def log_session_end(applied: int, failed: int):
+    """Registra el resumen final de la sesión."""
+    get_logger().info(f"Sesión finalizada. Cambios aplicados: {applied}, Fallidos: {failed}")
+
+
+def log_change_success(file_path: str, action: str):
+    """Registra un cambio exitoso."""
+    get_logger().info(f"[SUCCESS] {action.upper()}: {file_path}")
+
+
+def log_change_error(file_path: str, action: str, error: ChangeError):
+    """Registra un cambio fallido."""
+    get_logger().error(
+        f"[ERROR] {action.upper()}: {file_path} - "
+        f"Tipo: {error.error_type} | Mensaje: {error.message}"
+    )
+
+
+def generate_error_report(error: ChangeError, raw_xml: str = "") -> str:
+    suggerencias = {
+        'error_coincidencia': 
+            'El código de CODIGO_ANTIGUO no coincide exactamente con el archivo. Possible causas: (1) El archivo fue modificado, (2) La IA generó código con caracteres diferentes, (3) Diferencias de indentación. COPIA el código EXACTO del archivo.',
+        'archivo_no_encontrado': 'El archivo en ARCHIVO no existe. Verifica la ruta.',
+        'ruta_insegura': 'La ruta está fuera del directorio del proyecto.',
+        'git_apply_fallo': 'El parche no puede aplicarse. Verifica que el código antiguo y nuevo sean correctos.',
+        'old_code_vacio': 'CODIGO_ANTIGUO está vacío.',
+        'bloque_demasiado_grande': 'El bloque es muy grande. Divide en cambios más pequeños.',
+        'regex_error': 'Error al procesar el código.',
+        'parser_error': 'El XML no puede parsearse. Verifica etiquetas y estructura.',
+        'project_path_requerido': 'Falta la ruta del proyecto.',
+        'aplicacion_fallo': 'El cambio no pudo aplicarse. La IA puede haber generado código incorrecto.',
+        'excepcion_desconocida': 'Error inesperado.',
+    }
+    
+    sugerencia = suggerencias.get(error.error_type, 'Revisa el contenido del cambio.')
+    detail = error.detail if error.detail else "N/A"
+    
+    report = f"""
+==================== ERROR DE APLICACIÓN ====================
+{error.message}
+
+📋 DETALLES:
+- Tipo: {error.error_type}
+- Archivo: {error.file_path}
+- Detalle: {detail}
+
+💡 SUGERENCIA:
+{sugerencia}"""
+    
+    if raw_xml:
+        raw_block = f"""
+📄 BLOQUE XML QUE FALLÓ:
+```
+{raw_xml}
+```
+
+⚠️ Para solucionar, genera un nuevo cambio con:
+1. Código EXACTO del archivo (copia y pega)
+2. Ruta correcta en ARCHIVO
+3. CODIGO_ANTIGUO exacto a reemplazar"""
+        report += raw_block
+    
+    return report
 
 
 def create_changes_directory(project_path: str) -> str:

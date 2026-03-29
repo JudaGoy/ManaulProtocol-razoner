@@ -5,10 +5,6 @@ from services.git_service import (
     get_file_at_commit, get_current_file_content,
     get_uncommitted_files
 )
-from services.history_service import (
-    clear_apply_history, clear_all_apply_history,
-    get_files_with_history, get_history_snapshots
-)
 
 
 def _filter_system_files(files: list) -> list:
@@ -33,20 +29,13 @@ def get_last_commit_info(project_path: str) -> dict | None:
 
 
 def get_files_with_changes(project_path: str) -> list:
-    files_with_history = get_files_with_history(project_path)
     uncommitted_files = get_uncommitted_files(project_path)
-    
-    all_files = list(set(files_with_history + uncommitted_files))
-    all_files = _filter_system_files(all_files)
-    all_files.sort()
-    
-    return all_files
+    uncommitted_files = _filter_system_files(uncommitted_files)
+    uncommitted_files.sort()
+    return uncommitted_files
 
 
 def get_file_status(project_path: str, filename: str) -> dict:
-    snapshots = get_history_snapshots(project_path, filename)
-    version_count = len(snapshots)
-    
     uncommitted = get_uncommitted_files(project_path)
     is_uncommitted = filename in uncommitted
     
@@ -58,15 +47,12 @@ def get_file_status(project_path: str, filename: str) -> dict:
     else:
         has_diff_from_commit = True
     
-    if version_count > 0:
-        status_color = "orange"
-    elif is_uncommitted:
+    if is_uncommitted:
         status_color = "red"
     else:
         status_color = "green"
     
     return {
-        "version_count": version_count,
         "is_uncommitted": is_uncommitted,
         "has_diff_from_commit": has_diff_from_commit,
         "status_color": status_color
@@ -75,19 +61,11 @@ def get_file_status(project_path: str, filename: str) -> dict:
 
 def do_commit(project_path: str, message: str) -> tuple[bool, str]:
     success, result = commit(project_path, message)
-    
-    if success:
-        clear_all_apply_history(project_path)
-    
     return success, result
 
 
 def do_revert_file(project_path: str, filename: str, commit_hash: str, watcher_holder: dict) -> tuple[bool, str]:
     success, result = revert_file(project_path, filename, commit_hash)
-    
-    if success:
-        clear_apply_history(project_path, filename)
-    
     return success, result
 
 
@@ -105,32 +83,19 @@ def do_discard_all_changes(project_path: str, watcher_holder: dict) -> tuple[boo
                     os.remove(full_path)
                 except Exception:
                     pass
-        
-        clear_all_apply_history(project_path)
     
     return success, msg
 
 
 def get_file_diff_data(project_path: str, filename: str, version_index: int = 0) -> dict:
-    snapshots = get_history_snapshots(project_path, filename)
-    version_count = len(snapshots)
-    
     last_commit_code = get_file_at_commit(project_path, "HEAD", filename)
     current_code = get_current_file_content(project_path, filename)
     
     if not last_commit_code:
         last_commit_code = "(Archivo no existe en el último commit)"
     
-    applied_code = current_code
-    if version_count > 0 and version_index > 0:
-        idx = version_index - 1
-        if idx < len(snapshots):
-            applied_code = snapshots[idx]
-    
     diff_label = f"{filename}"
-    if version_count > 0:
-        diff_label += f" (Aplicado sin commit - {version_count})"
-    elif last_commit_code and last_commit_code != current_code:
+    if last_commit_code and last_commit_code != current_code:
         diff_label += " (Modificado sin commit)"
     elif not last_commit_code:
         diff_label += " (Nuevo archivo)"
@@ -139,9 +104,8 @@ def get_file_diff_data(project_path: str, filename: str, version_index: int = 0)
     
     return {
         "original": last_commit_code,
-        "modified": applied_code,
-        "label": diff_label,
-        "version_count": version_count
+        "modified": current_code,
+        "label": diff_label
     }
 
 
