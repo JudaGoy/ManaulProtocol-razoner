@@ -1,4 +1,4 @@
-ddimport os
+import os
 import re
 import html
 import difflib
@@ -516,6 +516,16 @@ def _apply_text_change_as_patch(change: Change, project_path: str) -> bool:
     if change.action == 'reemplazar':
         new_content = replace_specific_instances(original_content, target_old_code, target_new_code, change.instances)
     elif change.action == 'insertar':
+        # Validar que CODIGO_ANTIGUO no esté contenido en CODIGO_NUEVO (duplicado)
+        if target_old_code in target_new_code:
+            raise ChangeError(
+                error_type="insertar_duplicado",
+                message="CODIGO_ANTIGUO está contenido en CODIGO_NUEVO. "
+                        "La IA posiblemente copió el código antiguo en el nuevo, causando duplicado. "
+                        "En acción 'insertar', CODIGO_NUEVO debe contener SOLO el código nuevo a añadir.",
+                file_path=change.file_path,
+                detail=f"El código antiguo aparece {target_new_code.count(target_old_code)} vez(es) en el código nuevo"
+            )
         new_content = original_content.replace(target_old_code, target_old_code + "\n" + target_new_code, 1)
     elif change.action == 'eliminar':
         new_content = replace_specific_instances(original_content, target_old_code, "", change.instances)

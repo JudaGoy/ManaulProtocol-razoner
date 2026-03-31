@@ -360,6 +360,8 @@ class AICodeEditor(ctk.CTk):
                 continue
             if item == '_changes':
                 continue
+            if item == '_skills':
+                continue
             if item == 'manual_protocol.log' or item == 'manaul_protocol.log':
                 continue
             path = os.path.join(folder, item)
