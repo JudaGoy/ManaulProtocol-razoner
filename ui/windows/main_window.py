@@ -25,6 +25,7 @@ class AICodeEditor(ctk.CTk):
         self.project_path = None
         self.changes_path = None
         self.selected_files = {}
+        self.selected_skills = {}
         self.item_sizes = {}
         self.folder_selected_sizes = {}
         self.file_tree_items = {}
@@ -118,6 +119,35 @@ class AICodeEditor(ctk.CTk):
         )
         self.btn_apply.pack(pady=10, padx=20, fill="x")
         
+        self.skills_frame = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        self.skills_frame.pack(pady=5, padx=20, fill="both", expand=True)
+        
+        self.lbl_skills_title = ctk.CTkLabel(
+            self.skills_frame,
+            text="📦 Skills",
+            font=ctk.CTkFont(size=12, weight="bold")
+        )
+        self.lbl_skills_title.pack(anchor="w", pady=(5, 0))
+        
+        self.skills_label = ctk.CTkLabel(
+            self.skills_frame,
+            text="Skills disponibles:",
+            font=ctk.CTkFont(size=10)
+        )
+        self.skills_label.pack(anchor="w", pady=(0, 2))
+        
+        self.skills_scroll_frame = ctk.CTkScrollableFrame(
+            self.skills_frame,
+            label_text="",
+            fg_color=("gray85", "gray17"),
+            border_width=1,
+            border_color=("gray70", "gray30")
+        )
+        self.skills_scroll_frame.pack(fill="both", expand=True, pady=2)
+        
+        self.skills_checkboxes = {}
+        self.selected_skills = {}
+        
     def setup_main_content(self):
         self.main_content.grid_columnconfigure(0, weight=1)
         self.main_content.grid_rowconfigure(1, weight=1)
@@ -204,6 +234,12 @@ class AICodeEditor(ctk.CTk):
             self.lbl_title.configure(text=f"Archivos del proyecto: {os.path.basename(folder)}")
             self.load_project_files(folder)
             
+            skills_folder = os.path.join(folder, "_skills")
+            if not os.path.exists(skills_folder):
+                os.makedirs(skills_folder, exist_ok=True)
+            
+            self.load_skills()
+            
             success, msg, changes_file = initialize_project(folder)
             print(f"Git: {msg}")
             self.changes_path = changes_file
@@ -236,6 +272,44 @@ class AICodeEditor(ctk.CTk):
         win = GestionarCambiosWindow(self, self.project_path, changes_file)
         win.lift()
         win.focus_force()
+    
+    def load_skills(self):
+        for widget in self.skills_scroll_frame.winfo_children():
+            widget.destroy()
+        
+        self.selected_skills = {}
+        self.skills_checkboxes = {}
+        
+        if not self.project_path:
+            return
+        
+        skills_folder = os.path.join(self.project_path, "_skills")
+        if not os.path.exists(skills_folder):
+            return
+        
+        skill_files = [f for f in os.listdir(skills_folder) if f.endswith('.md')]
+        
+        for skill_file in sorted(skill_files):
+            skill_name = skill_file[:-3]
+            
+            var = ctk.BooleanVar(value=False)
+            checkbox = ctk.CTkCheckBox(
+                self.skills_scroll_frame,
+                text=f"📦 {skill_name}",
+                variable=var,
+                command=lambda s=skill_file, v=var: self.on_skill_toggle(s, v)
+            )
+            checkbox.pack(anchor="w", padx=5, pady=2)
+            self.skills_checkboxes[skill_file] = (checkbox, var)
+    
+    def on_skill_toggle(self, skill_file, var):
+        if var.get():
+            skills_folder = os.path.join(self.project_path, "_skills")
+            skill_path = os.path.join(skills_folder, skill_file)
+            self.selected_skills[skill_file] = skill_path
+        else:
+            if skill_file in self.selected_skills:
+                del self.selected_skills[skill_file]
     
     def format_size(self, size):
         if size < 1024 * 1024:
@@ -553,7 +627,8 @@ class AICodeEditor(ctk.CTk):
             self.project_path,
             selected_paths,
             prompt,
-            self.current_mode
+            self.current_mode,
+            self.selected_skills
         )
         
         self.show_success(f"Instrucciones generadas:\n{output_path}")

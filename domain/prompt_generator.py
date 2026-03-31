@@ -654,7 +654,38 @@ def get_file_contents(project_path, selected_paths):
     return "\n".join(lines)
 
 
-def generate_instruction_file(project_path, selected_paths, user_prompt, mode="build"):
+def get_skills_content(project_path, selected_skills: dict) -> str:
+    if not selected_skills:
+        return ""
+    
+    lines = []
+    lines.append("=" * 80)
+    lines.append("                    📦 SKILLS SELECCIONADAS")
+    lines.append("=" * 80)
+    lines.append("")
+    
+    for skill_name, skill_path in selected_skills.items():
+        lines.append(f"### Skill: {skill_name}")
+        lines.append("")
+        
+        try:
+            with open(skill_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            lines.append(content)
+        except Exception as e:
+            lines.append(f"[Error al leer skill: {e}]")
+        
+        lines.append("")
+        lines.append("-" * 40)
+        lines.append("")
+    
+    return "\n".join(lines)
+
+
+def generate_instruction_file(project_path, selected_paths, user_prompt, mode="build", selected_skills: dict = None):
+    if selected_skills is None:
+        selected_skills = {}
+    
     project_name = os.path.basename(project_path)
     date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
@@ -679,6 +710,9 @@ def generate_instruction_file(project_path, selected_paths, user_prompt, mode="b
     output.append("")
     output.append(user_prompt)
     output.append("")
+    
+    if selected_skills:
+        output.append(get_skills_content(project_path, selected_skills))
     
     output.append(get_file_contents(project_path, selected_paths))
     
